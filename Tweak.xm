@@ -21,6 +21,16 @@ static NSDictionary *ProxySettings(void) {
 }
 %end
 
+%hook NSURLSession
++ (NSURLSession *)sessionWithConfiguration:(NSURLSessionConfiguration *)configuration
+                                 delegate:(id<NSURLSessionDelegate>)delegate
+                            delegateQueue:(NSOperationQueue *)queue {
+    NSURLSessionConfiguration *configured = [configuration copy];
+    configured.connectionProxyDictionary = ProxySettings();
+    return %orig(configured, delegate, queue);
+}
+%end
+
 static CFDictionaryRef (*OriginalProxySettings)(void);
 static CFDictionaryRef ReplacedProxySettings(void) {
     return (__bridge_retained CFDictionaryRef)ProxySettings();
