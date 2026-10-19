@@ -7,7 +7,7 @@
 #include <errno.h>
 extern char **environ;
 
-@interface ProxyController : UIViewController
+@interface ProxyController : UIViewController <NSURLSessionDelegate>
 @property(nonatomic, strong) UITextField *ipField;
 @property(nonatomic, strong) UITextField *portField;
 @property(nonatomic, strong) UITextField *apiField;
@@ -127,7 +127,7 @@ extern char **environ;
     configuration.timeoutIntervalForRequest = 15;
     configuration.timeoutIntervalForResource = 20;
     configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration];
+    NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:nil];
     [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSString *message = nil, *ip = nil, *port = nil;
         NSInteger code = [(NSHTTPURLResponse *)response statusCode];
@@ -160,6 +160,14 @@ extern char **environ;
         });
         [session finishTasksAndInvalidate];
     }] resume];
+}
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+    // User-requested certificate bypass applies only to the dedicated API session.
+    if ([challenge.protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust] && challenge.protectionSpace.serverTrust) {
+        completionHandler(NSURLSessionAuthChallengeUseCredential, [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust]);
+    } else {
+        completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+    }
 }
 - (void)run:(NSString *)command arguments:(NSArray<NSString *> *)arguments {
     if (self.busy) return;
