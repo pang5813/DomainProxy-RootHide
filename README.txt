@@ -1,7 +1,11 @@
-DomainProxy 0.3.0 — iOS 16.1 Dopamine RootHide 全局隧道实验版
+DomainProxy 0.3.1 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 
 该版本不包含 MobileSubstrate 插件，不需要为目标 App 开启注入。
-桌面“域名代理”App 通过限定功能的 root 控制器启动独立 sing-box 隧道进程。
+桌面“域名代理”App 通过限定功能的 root 控制器，让系统 launchd 启动 sing-box。
+核心不再作为设置 App 的普通子进程运行，以避免依赖 UI 的后台生命周期。
+启动后发送一次普通域名 DNS 探测，并检查 utun99 双向计数是否增加；未通过则
+自动停止服务并显示具体结果。它只能验证当次探测，不代表全设备长期无泄漏。
+当前启用 debug 日志；日志界面去除 ANSI 颜色码，并附带当前 utun 收发计数。
 这与 0.1/0.2 注入版本的实现不同，升级后应关闭旧版目标 App 注入并重启目标 App。
 
 使用：
@@ -10,7 +14,8 @@ DomainProxy 0.3.0 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 3. 先关闭其他 VPN，点击“保存并启动全局代理”。不需要开启 App 注入。
 4. 测试 ip138.com 的出口、非目标网站、IPv6。遇到错误，点击“查看运行日志”。
 5. 点击“停止全局代理”退出隧道；升级/卸载时安装脚本也会要求服务退出。
-   不设置开机自启；重启设备并重新越狱后需在 App 中重新启动。
+  服务定义动态写入 /var/run，按需用 launchctl bootstrap/bootout 管理，
+  不设置开机自启；重启设备并重新越狱后需在 App 中重新启动。
 
 规则：
 - 通过独立 utun 隧道接管 IPv4/IPv6 路由，目标为全设备流量分流。

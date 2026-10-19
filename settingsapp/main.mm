@@ -86,7 +86,7 @@ extern char **environ;
     self.statusLabel = [self label:@"正在读取服务状态…" style:UIFontTextStyleFootnote];
     self.statusLabel.textColor = UIColor.secondaryLabelColor;
     [stack addArrangedSubview:self.statusLabel];
-    UILabel *note = [self label:@"适用于 iOS 16.1 Dopamine RootHide，无需为目标 App 开启注入。支持无认证 HTTP 上游；目标域名的 UDP 请求被拒绝。\n\n首次启动请先关闭其他 VPN。启动后验证出口 IP、非目标网站和 IPv6。网络切换后如异常，请停止并重新启动。\n\n实验版本，尚未经过真机验证。服务运行不代表全部流量已被接管。停止服务后恢复系统网络，不提供断线锁网。" style:UIFontTextStyleFootnote];
+    UILabel *note = [self label:@"适用于 iOS 16.1 Dopamine RootHide，无需为目标 App 开启注入。支持无认证 HTTP 上游；目标域名的 UDP 请求被拒绝。\n\n首次启动请先关闭其他 VPN。启动后会检查 DNS 和隧道双向收发，不通过则自动停止，避免持续断网。\n\n请验证出口 IP、非目标网站和 IPv6。网络切换异常时，请停止后重新启动。\n\n实验版本，尚未完成真机验证。启动自检不能保证所有 App 都被接管。停止服务后恢复系统网络，不提供断线锁网。" style:UIFontTextStyleFootnote];
     note.textColor = UIColor.secondaryLabelColor;
     [stack addArrangedSubview:note];
     NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;

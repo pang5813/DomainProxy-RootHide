@@ -9,6 +9,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 extern char **environ;
 extern "C" int proc_pidpath(int, void *, uint32_t);
 
@@ -22,6 +24,94 @@ static void Reply(NSDictionary *value, int code) {
 }
 static void Fail(NSString *message) { Reply(@{@"ok": @NO, @"message": message}, 1); }
 static NSString *Path(NSString *name) { return [StateDirectory() stringByAppendingPathComponent:name]; }
+static NSString *ServiceTarget(void) { return @"system/local.domainproxy.tunnel"; }
+static NSDictionary *Launchctl(NSArray<NSString *> *arguments) {
+    NSString *tool = jbroot(@"/bin/launchctl");
+    if (![NSFileManager.defaultManager isExecutableFileAtPath:tool]) tool = @"/bin/launchctl";
+    NSArray<NSString *> *all = [@[tool] arrayByAddingObjectsFromArray:arguments];
+    char **args = (char **)calloc(all.count + 1, sizeof(char *));
+    for (NSUInteger i = 0; i < all.count; ++i) args[i] = strdup(all[i].UTF8String);
+    int pipes[2];
+    NSMutableData *output = [NSMutableData new];
+    int code = pipe(pipes), status = 0;
+    if (code == 0) {
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, pipes[1], STDOUT_FILENO);
+        posix_spawn_file_actions_adddup2(&actions, pipes[1], STDERR_FILENO);
+        posix_spawn_file_actions_addclose(&actions, pipes[0]);
+        posix_spawn_file_actions_addclose(&actions, pipes[1]);
+        char *env[] = {(char *)"PATH=/usr/bin:/bin:/usr/sbin:/sbin", (char *)"HOME=/var/root", NULL};
+        pid_t child = 0;
+        code = posix_spawn(&child, tool.fileSystemRepresentation, &actions, NULL, args, env);
+        posix_spawn_file_actions_destroy(&actions);
+        close(pipes[1]);
+        if (!code) {
+            char buffer[2048]; ssize_t size;
+            while ((size = read(pipes[0], buffer, sizeof(buffer))) > 0) [output appendBytes:buffer length:size];
+            waitpid(child, &status, 0);
+            code = WIFEXITED(status) ? WEXITSTATUS(status) : 128;
+        }
+        close(pipes[0]);
+    } else code = errno;
+    for (NSUInteger i = 0; i < all.count; ++i) free(args[i]);
+    free(args);
+    NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding] ?: @"";
+    return @{@"code": @(code), @"output": text};
+}
+static pid_t ServicePID(void) {
+    NSDictionary *reply = Launchctl(@[@"print", ServiceTarget()]);
+    if ([reply[@"code"] intValue]) return 0;
+    NSString *text = reply[@"output"];
+    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:@"(?m)^\\s*pid = ([0-9]+)" options:0 error:nil];
+    NSTextCheckingResult *match = [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
+    return match ? [[text substringWithRange:[match rangeAtIndex:1]] intValue] : 0;
+}
+static void AppendLog(NSString *text) {
+    NSFileHandle *file = [NSFileHandle fileHandleForWritingAtPath:Path(@"service.log")];
+    if (!file) return;
+    [file seekToEndOfFile];
+    [file writeData:[[text stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding]];
+    [file closeFile];
+}
+static BOOL TunCounters(uint64_t *received, uint64_t *sent) {
+    struct ifaddrs *interfaces = NULL;
+    if (getifaddrs(&interfaces) != 0) return NO;
+    BOOL found = NO;
+    for (struct ifaddrs *it = interfaces; it; it = it->ifa_next) {
+        if (strcmp(it->ifa_name, "utun99") || !it->ifa_addr || it->ifa_addr->sa_family != AF_LINK || !it->ifa_data) continue;
+        struct if_data *data = (struct if_data *)it->ifa_data;
+        *received = data->ifi_ibytes; *sent = data->ifi_obytes;
+        found = YES; break;
+    }
+    freeifaddrs(interfaces);
+    return found;
+}
+static BOOL ForwardingProbe(NSString **diagnostic) {
+    uint64_t rxBefore = 0, txBefore = 0, rxAfter = 0, txAfter = 0;
+    BOOL before = TunCounters(&rxBefore, &txBefore);
+    // Query a non-proxied domain through the exact DNS server configured in the tunnel.
+    const unsigned char query[] = {0x44,0x70,1,0,0,1,0,0,0,0,0,0,7,'e','x','a','m','p','l','e',3,'c','o','m',0,0,1,0,1};
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    BOOL answered = NO;
+    if (fd >= 0) {
+        struct timeval timeout = {4, 0};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        struct sockaddr_in dns = {};
+        dns.sin_len = sizeof(dns); dns.sin_family = AF_INET; dns.sin_port = htons(53);
+        inet_pton(AF_INET, "223.5.5.5", &dns.sin_addr);
+        if (connect(fd, (struct sockaddr *)&dns, sizeof(dns)) == 0 && send(fd, query, sizeof(query), 0) == (ssize_t)sizeof(query)) {
+            unsigned char reply[2048];
+            ssize_t size = recv(fd, reply, sizeof(reply), 0);
+            answered = size >= 12 && reply[0] == 0x44 && reply[1] == 0x70 && (reply[2] & 0x80) && !(reply[3] & 0x0f) && (reply[6] || reply[7]);
+        }
+        close(fd);
+    }
+    BOOL after = TunCounters(&rxAfter, &txAfter);
+    BOOL traffic = before && after && rxAfter > rxBefore && txAfter > txBefore;
+    *diagnostic = [NSString stringWithFormat:@"启动自检：DNS=%@，utun99 接收 %llu→%llu，发送 %llu→%llu。", answered ? @"成功" : @"失败", (unsigned long long)rxBefore, (unsigned long long)rxAfter, (unsigned long long)txBefore, (unsigned long long)txAfter];
+    return answered && traffic;
+}
 static pid_t RunningPID(void) {
     pid_t pid = [[NSString stringWithContentsOfFile:Path(@"pid") encoding:NSUTF8StringEncoding error:nil] intValue];
     if (pid <= 1 || kill(pid, 0) != 0) return 0;
@@ -33,8 +123,13 @@ static pid_t RunningPID(void) {
 }
 static BOOL Stop(void) {
     pid_t pid = RunningPID();
+    NSDictionary *job = Launchctl(@[@"print", ServiceTarget()]);
+    if ([job[@"code"] intValue] == 0) {
+        NSDictionary *removed = Launchctl(@[@"bootout", ServiceTarget()]);
+        if ([removed[@"code"] intValue] != 0) return NO;
+    }
     if (!pid) return YES;
-    if (kill(pid, SIGTERM) != 0) return NO;
+    if (kill(pid, SIGTERM) != 0 && errno != ESRCH) return NO;
     for (int i = 0; i < 50; ++i) {
         if (RunningPID() != pid) { unlink(Path(@"pid").fileSystemRepresentation); return YES; }
         usleep(100000);
@@ -60,7 +155,12 @@ int main(int argc, char **argv) {
         if ([command isEqualToString:@"log"]) {
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil] ?: @"暂无日志。";
             if (log.length > 16000) log = [log substringFromIndex:log.length - 16000];
-            Reply(@{@"ok": @YES, @"message": log}, 0);
+            NSRegularExpression *ansi = [NSRegularExpression regularExpressionWithPattern:@"\x1b\\[[0-9;]*m" options:0 error:nil];
+            log = [ansi stringByReplacingMatchesInString:log options:0 range:NSMakeRange(0, log.length) withTemplate:@""];
+            uint64_t rx = 0, tx = 0;
+            BOOL present = TunCounters(&rx, &tx);
+            NSString *state = [NSString stringWithFormat:@"\n当前诊断：utun99=%@，接收=%llu，发送=%llu\n", present ? @"存在" : @"不存在", (unsigned long long)rx, (unsigned long long)tx];
+            Reply(@{@"ok": @YES, @"message": [log stringByAppendingString:state]}, 0);
         }
         if ([command isEqualToString:@"stop"]) {
             if (!Stop()) Fail(@"服务尚未退出，请稍后重试；未强行修改系统路由。");
@@ -81,31 +181,40 @@ int main(int argc, char **argv) {
         NSData *json = [NSJSONSerialization dataWithJSONObject:config options:NSJSONWritingPrettyPrinted error:&error];
         if (!json || ![json writeToFile:Path(@"config.json") options:NSDataWritingAtomic error:&error]) Fail(error.localizedDescription ?: @"写入规则失败。");
         if (!Stop()) Fail(@"旧服务没有退出，无法启动新服务。");
-        NSString *core = CorePath();
-        NSString *configPath = Path(@"config.json");
-        posix_spawn_file_actions_t actions;
-        posix_spawn_file_actions_init(&actions);
-        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
-        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, Path(@"service.log").fileSystemRepresentation, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
-        posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
-        char *args[] = {(char *)core.fileSystemRepresentation, (char *)"run", (char *)"-c", (char *)configPath.fileSystemRepresentation, NULL};
-        // Keep the child environment minimal; never pass caller-controlled loader variables to root.
-        char *childEnv[] = {(char *)"PATH=/usr/bin:/bin:/usr/sbin:/sbin", (char *)"HOME=/var/root", NULL};
+        NSDictionary *service = @{
+            @"Label": @"local.domainproxy.tunnel",
+            @"ProgramArguments": @[CorePath(), @"run", @"-c", Path(@"config.json")],
+            @"UserName": @"root", @"RunAtLoad": @YES, @"KeepAlive": @NO,
+            @"ProcessType": @"Background", @"ExitTimeOut": @5,
+            @"EnvironmentVariables": @{@"PATH": @"/usr/bin:/bin:/usr/sbin:/sbin", @"HOME": @"/var/root"},
+            @"StandardOutPath": Path(@"service.log"), @"StandardErrorPath": Path(@"service.log")
+        };
+        if (![service writeToFile:Path(@"service.plist") atomically:YES]) Fail(@"写入后台服务定义失败。");
+        if (![@"" writeToFile:Path(@"service.log") atomically:YES encoding:NSUTF8StringEncoding error:&error]) Fail(@"创建运行日志失败。");
+        NSDictionary *loaded = Launchctl(@[@"bootstrap", @"system", Path(@"service.plist")]);
+        if ([loaded[@"code"] intValue]) Fail([NSString stringWithFormat:@"launchd 无法加载隧道服务：%@", loaded[@"output"]]);
         pid_t pid = 0;
-        int result = posix_spawn(&pid, core.fileSystemRepresentation, &actions, NULL, args, childEnv);
-        posix_spawn_file_actions_destroy(&actions);
-        if (result) Fail([NSString stringWithFormat:@"无法启动隧道核心：%s", strerror(result)]);
+        for (int i = 0; i < 15 && !pid; ++i) { usleep(200000); pid = ServicePID(); }
+        if (pid <= 1) {
+            NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil];
+            Launchctl(@[@"bootout", ServiceTarget()]);
+            Fail([NSString stringWithFormat:@"后台服务没有启动：%@", log ?: @"请查看日志"]);
+        }
         NSString *pidText = [NSString stringWithFormat:@"%d", pid];
-        if (![pidText writeToFile:Path(@"pid") atomically:YES encoding:NSUTF8StringEncoding error:&error]) { kill(pid, SIGTERM); Fail(@"记录服务状态失败。"); }
+        if (![pidText writeToFile:Path(@"pid") atomically:YES encoding:NSUTF8StringEncoding error:&error]) { Launchctl(@[@"bootout", ServiceTarget()]); Fail(@"记录服务状态失败。"); }
         usleep(800000);
-        int status = 0;
-        pid_t waited = waitpid(pid, &status, WNOHANG);
-        if (waited == pid || RunningPID() != pid) {
-            // A child whose identity cannot be verified must never be left running.
-            if (waited != pid) kill(pid, SIGTERM);
+        if (RunningPID() != pid) {
+            Launchctl(@[@"bootout", ServiceTarget()]);
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil];
             Fail(log.length ? log : @"隧道核心启动后退出，请查看日志。");
         }
-        Reply(@{@"ok": @YES, @"running": @YES, @"message": @"隧道进程已启动。请测试 ip138.com 的出口 IP 和 IPv6；进程运行不等于流量已全部接管。"}, 0);
+        NSString *diagnostic = nil;
+        BOOL healthy = ForwardingProbe(&diagnostic);
+        AppendLog(diagnostic);
+        if (!healthy) {
+            BOOL stopped = Stop();
+            Fail([NSString stringWithFormat:@"转发自检未通过，%@。%@ 请查看运行日志。", stopped ? @"已自动停止并关闭隧道" : @"自动停止失败，请点停止；必要时重启手机恢复网络", diagnostic]);
+        }
+        Reply(@{@"ok": @YES, @"running": @YES, @"message": @"后台服务已启动，DNS 与隧道双向收发自检通过。请继续验证 ip138.com 出口和切换 App 后的网络。"}, 0);
     }
 }
