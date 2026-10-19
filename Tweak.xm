@@ -8,7 +8,9 @@
 
 // These hooks only cover injected processes, not the device network stack.
 static NSDictionary *ProxySettings(void) {
-    NSString *path = jbroot(@"/Library/DomainProxy/proxy.pac");
+    NSString *path = jbroot(@"/var/mobile/Library/Preferences/local.domainproxy.pac");
+    if (![NSFileManager.defaultManager fileExistsAtPath:path])
+        path = jbroot(@"/Library/DomainProxy/proxy.pac");
     return @{
         @"ProxyAutoConfigEnable": @YES,
         @"ProxyAutoConfigURLString": [NSURL fileURLWithPath:path].absoluteString
@@ -58,7 +60,8 @@ static int ReplacedGetaddrinfo(const char *node, const char *service,
 %ctor {
     @autoreleasepool {
         // Skip system UI; users should enable injection only for target apps.
-        if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"])
+        if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"] ||
+            [NSBundle.mainBundle.bundleIdentifier isEqualToString:@"local.domainproxy.settings"])
             return;
         %init;
         MSHookFunction((void *)&CFNetworkCopySystemProxySettings,

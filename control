@@ -1,9 +1,9 @@
 Package: local.domainproxy
 Name: DomainProxy
-Version: 0.1.0
+Version: 0.2.0
 Architecture: iphoneos-arm64e
 Description: Experimental ip138.com HTTP proxy and per-process IPv6 blocking for RootHide.
 Maintainer: DomainProxy
 Author: DomainProxy
 Section: Tweaks
-Depends: mobilesubstrate
+Depends: mobilesubstrate, uikittools

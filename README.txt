@@ -1,4 +1,4 @@
-DomainProxy — RootHide 实验原型（iOS 15+）
+DomainProxy 0.2.0 — RootHide 实验原型（iOS 15+），含桌面设置 App
 
 功能：为注入进程的 CFNetwork / NSURLSession 设置 PAC；ip138.com 及子域名走
 HTTP 代理，其他域名 DIRECT。HTTPS 由 HTTP 代理 CONNECT，未实现解密。
@@ -10,12 +10,19 @@ HTTP 代理，其他域名 DIRECT。HTTPS 由 HTTP 代理 CONNECT，未实现解
 IPv6-only / NAT64 网络可能因此无法联网。不要将本原型当作防泄漏工具。
 
 配置：
+推荐：安装后打开桌面“域名代理”App，填写 HTTP 代理的 IPv4 地址、端口并保存。
+然后在 RootHide 为目标 App 启用注入，彻底退出并重新打开目标 App。
+配置保存在 jbroot:/var/mobile/Library/Preferences/local.domainproxy.pac。
+清空 IP 后保存可关闭域名代理，但 IPv6 拦截仍生效。
+保存失败会明确报错；本 App 不宣称已测试连接。
+
+旧版手动配置（没有通过 App 保存时才读取）：
 1. 用 RootHide 环境的 Filza 找到越狱根目录内 Library/DomainProxy/proxy.pac。
    不要假设固定为 /var/jb；程序使用 jbroot() 解析实际路径。
 2. 填 PROXY_IP 和 PROXY_PORT（仅支持 IPv4 地址、无认证 HTTP 上游）。
    IP 留空时域名全部直连，但 IPv6 hook 仍生效。
 3. 在 RootHide 的 App 注入管理中只启用需要测试的 App，然后彻底退出并重开。
-   当前无设置面板。源码中的配置亦可在 GitHub 编译前修改；不要填写真实密码。
+   源码中的配置亦可在 GitHub 编译前修改；不要填写真实密码。
 4. 关闭该 App 的注入并重启 App，或卸载插件并重启 App，即恢复原状。
    插件不修改系统网络配置，不需要恢复系统 IPv6 参数。
 

@@ -22,6 +22,7 @@ jobs:
         run: gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
       - name: Verify package
         run: |
+          python3 tests/verify_deb.py packages/*.deb
           for package in packages/*.deb; do
             dpkg-deb --info "$package"
             dpkg-deb --contents "$package"
