@@ -1,4 +1,4 @@
-"""Check that the built package includes both the tweak and its settings UI."""
+"""Check standalone UI/controller/core packaging, with no injected dylib."""
 import io
 import plistlib
 import sys
@@ -23,9 +23,9 @@ for filename in sys.argv[1:]:
         required = [
             "Applications/DomainProxyApp.app/DomainProxyApp",
             "Applications/DomainProxyApp.app/Info.plist",
-            "Applications/DomainProxyApp.app/proxy.pac",
-            "Library/MobileSubstrate/DynamicLibraries/DomainProxy.dylib",
-            "Library/MobileSubstrate/DynamicLibraries/DomainProxy.plist",
+            "usr/bin/domainproxyctl",
+            "usr/libexec/domainproxy-core",
+            "Library/DomainProxy/global-config.json",
         ]
         for name in required:
             assert name in entries, f"Missing UI or tweak file: {name}"
@@ -33,13 +33,13 @@ for filename in sys.argv[1:]:
         info = plistlib.loads(archive.extractfile(entries[required[1]]).read())
         assert info["CFBundleIdentifier"] == "local.domainproxy.settings"
         assert info["CFBundleDisplayName"] == "域名代理"
-        assert info["CFBundleShortVersionString"] == "0.2.0"
-        pac = archive.extractfile(entries[required[2]]).read().decode()
-        assert 'var PROXY_IP = "";' in pac and 'var PROXY_PORT = 8080;' in pac
-        assert 'ip138.com' in pac
+        assert info["CFBundleShortVersionString"] == "0.3.0"
+        assert not any('MobileSubstrate' in name or name.endswith('.dylib') for name in entries), 'Unexpected injected plugin'
+        assert entries[required[2]].uid == 0 and entries[required[2]].mode & 0o4000, 'Root controller must be setuid and root-owned'
+        assert entries[required[3]].mode & 0o111, 'Core must be executable'
     control = next(v for k, v in members.items() if k.startswith("control.tar"))
     with tarfile.open(fileobj=io.BytesIO(control)) as archive:
         entries = {m.name.removeprefix("./"): m for m in archive.getmembers()}
-        for name in ["postinst", "postrm"]:
+        for name in ["postinst", "postrm", "prerm"]:
             assert entries[name].mode & 0o111, f"{name} must be executable"
-    print(f"UI, proxy rules, tweak and installation scripts verified: {filename}")
+    print(f"Standalone UI, root controller, core, and uninstall cleanup verified: {filename}")

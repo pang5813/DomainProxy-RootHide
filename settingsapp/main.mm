@@ -1,31 +1,32 @@
 #import <UIKit/UIKit.h>
 #import <roothide.h>
 #include <arpa/inet.h>
-
-static NSString *ConfigurationPath(void) {
-    return jbroot(@"/var/mobile/Library/Preferences/local.domainproxy.pac");
-}
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <errno.h>
+extern char **environ;
 
 @interface ProxyController : UIViewController
 @property(nonatomic, strong) UITextField *ipField;
 @property(nonatomic, strong) UITextField *portField;
 @property(nonatomic, strong) UILabel *statusLabel;
+@property(nonatomic, strong) NSMutableArray<UIButton *> *buttons;
+@property(nonatomic) BOOL busy;
 @end
 
 @implementation ProxyController
 - (UILabel *)label:(NSString *)text style:(UIFontTextStyle)style {
     UILabel *label = [UILabel new];
-    label.text = text;
+    label.text = text; label.numberOfLines = 0;
     label.font = [UIFont preferredFontForTextStyle:style];
     label.adjustsFontForContentSizeCategory = YES;
-    label.numberOfLines = 0;
     return label;
 }
-- (UITextField *)field:(NSString *)placeholder keyboard:(UIKeyboardType)keyboard {
+- (UITextField *)field:(NSString *)hint keyboard:(UIKeyboardType)keyboard {
     UITextField *field = [UITextField new];
-    field.placeholder = placeholder;
+    field.placeholder = hint; field.keyboardType = keyboard;
     field.borderStyle = UITextBorderStyleRoundedRect;
-    field.keyboardType = keyboard;
     field.autocorrectionType = UITextAutocorrectionTypeNo;
     field.autocapitalizationType = UITextAutocapitalizationTypeNone;
     field.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
@@ -33,19 +34,28 @@ static NSString *ConfigurationPath(void) {
     [field.heightAnchor constraintGreaterThanOrEqualToConstant:48].active = YES;
     return field;
 }
+- (UIButton *)button:(NSString *)title action:(SEL)action primary:(BOOL)primary {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIButtonConfiguration *config = primary ? [UIButtonConfiguration filledButtonConfiguration] : [UIButtonConfiguration tintedButtonConfiguration];
+    config.title = title; config.cornerStyle = UIButtonConfigurationCornerStyleMedium;
+    button.configuration = config;
+    [button.heightAnchor constraintGreaterThanOrEqualToConstant:48].active = YES;
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    [self.buttons addObject:button];
+    return button;
+}
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"域名代理";
+    self.title = @"全局域名代理";
+    self.buttons = [NSMutableArray new];
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
-        initWithTitle:@"完成输入" style:UIBarButtonItemStylePlain target:self action:@selector(dismissKeyboard)];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"完成输入" style:UIBarButtonItemStylePlain target:self action:@selector(dismissKeyboard)];
     UIScrollView *scroll = [UIScrollView new];
     scroll.translatesAutoresizingMaskIntoConstraints = NO;
     scroll.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [self.view addSubview:scroll];
     UIStackView *stack = [UIStackView new];
-    stack.axis = UILayoutConstraintAxisVertical;
-    stack.spacing = 14;
+    stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 14;
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     [scroll addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
@@ -59,8 +69,8 @@ static NSString *ConfigurationPath(void) {
         [stack.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor constant:-24],
         [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-48]
     ]];
-    [stack addArrangedSubview:[self label:@"HTTP 代理" style:UIFontTextStyleTitle1]];
-    [stack addArrangedSubview:[self label:@"仅 ip138.com 及其子域名走代理，其他域名保持直连。" style:UIFontTextStyleBody]];
+    [stack addArrangedSubview:[self label:@"HTTP 上游代理" style:UIFontTextStyleTitle1]];
+    [stack addArrangedSubview:[self label:@"启动全局隧道后，仅 ip138.com 及其子域名走代理，其余 IPv4 流量直连。隧道内 IPv6 流量被拦截。" style:UIFontTextStyleBody]];
     [stack addArrangedSubview:[self label:@"代理 IPv4 地址" style:UIFontTextStyleHeadline]];
     self.ipField = [self field:@"例如 192.168.1.10" keyboard:UIKeyboardTypeDecimalPad];
     self.ipField.accessibilityLabel = @"代理 IPv4 地址";
@@ -69,77 +79,93 @@ static NSString *ConfigurationPath(void) {
     self.portField = [self field:@"例如 8080" keyboard:UIKeyboardTypeNumberPad];
     self.portField.accessibilityLabel = @"代理端口";
     [stack addArrangedSubview:self.portField];
-    UIButton *save = [UIButton buttonWithType:UIButtonTypeSystem];
-    UIButtonConfiguration *buttonConfig = [UIButtonConfiguration filledButtonConfiguration];
-    buttonConfig.title = @"保存代理配置";
-    buttonConfig.cornerStyle = UIButtonConfigurationCornerStyleMedium;
-    save.configuration = buttonConfig;
-    [save.heightAnchor constraintGreaterThanOrEqualToConstant:48].active = YES;
-    [save addTarget:self action:@selector(saveConfiguration) forControlEvents:UIControlEventTouchUpInside];
-    [stack addArrangedSubview:save];
-    self.statusLabel = [self label:@"" style:UIFontTextStyleFootnote];
+    [stack addArrangedSubview:[self button:@"保存并启动全局代理" action:@selector(start) primary:YES]];
+    [stack addArrangedSubview:[self button:@"停止全局代理" action:@selector(stop) primary:NO]];
+    [stack addArrangedSubview:[self button:@"刷新服务状态" action:@selector(refresh) primary:NO]];
+    [stack addArrangedSubview:[self button:@"查看运行日志" action:@selector(log) primary:NO]];
+    self.statusLabel = [self label:@"正在读取服务状态…" style:UIFontTextStyleFootnote];
     self.statusLabel.textColor = UIColor.secondaryLabelColor;
     [stack addArrangedSubview:self.statusLabel];
-    [stack addArrangedSubview:[self label:@"使用步骤\n1. 填写 IP 和端口，点保存。\n2. 在 RootHide 中为目标 App 开启插件注入。\n3. 彻底退出并重新打开目标 App。\n\n清空 IP 后保存可关闭域名代理。IPv6 拦截仍生效；关闭目标 App 的插件注入并重启该 App，可恢复其原有网络行为。" style:UIFontTextStyleBody]];
-    UILabel *note = [self label:@"支持无认证的 HTTP 上游。HTTPS 通过 CONNECT 转发。当前是实验版本，IPv6 拦截和域名代理仅覆盖已注入且兼容的应用进程，未经过真机验证。" style:UIFontTextStyleFootnote];
+    UILabel *note = [self label:@"适用于 iOS 16.1 Dopamine RootHide，无需为目标 App 开启注入。支持无认证 HTTP 上游；目标域名的 UDP 请求被拒绝。\n\n首次启动请先关闭其他 VPN。启动后验证出口 IP、非目标网站和 IPv6。网络切换后如异常，请停止并重新启动。\n\n实验版本，尚未经过真机验证。服务运行不代表全部流量已被接管。停止服务后恢复系统网络，不提供断线锁网。" style:UIFontTextStyleFootnote];
     note.textColor = UIColor.secondaryLabelColor;
     [stack addArrangedSubview:note];
-    [self loadConfiguration];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    self.ipField.text = [defaults stringForKey:@"ProxyIP"] ?: @"";
+    self.portField.text = [defaults stringForKey:@"ProxyPort"] ?: @"8080";
 }
+- (void)viewDidAppear:(BOOL)animated { [super viewDidAppear:animated]; [self refresh]; }
 - (void)dismissKeyboard { [self.view endEditing:YES]; }
-- (NSString *)capture:(NSString *)pattern in:(NSString *)text {
-    NSRegularExpression *regex = [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:nil];
-    NSTextCheckingResult *match = [regex firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
-    return match ? [text substringWithRange:[match rangeAtIndex:1]] : nil;
+- (void)run:(NSString *)command arguments:(NSArray<NSString *> *)arguments {
+    if (self.busy) return;
+    self.busy = YES;
+    for (UIButton *button in self.buttons) button.enabled = NO;
+    self.statusLabel.text = @"正在处理…";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSString *helper = jbroot(@"/usr/bin/domainproxyctl");
+        NSArray<NSString *> *all = [@[helper, command] arrayByAddingObjectsFromArray:arguments];
+        char **args = (char **)calloc(all.count + 1, sizeof(char *));
+        for (NSUInteger i = 0; i < all.count; ++i) args[i] = strdup(all[i].UTF8String);
+        int pipes[2];
+        NSMutableData *output = [NSMutableData new];
+        int result = pipe(pipes);
+        if (result == 0) {
+            posix_spawn_file_actions_t actions;
+            posix_spawn_file_actions_init(&actions);
+            posix_spawn_file_actions_adddup2(&actions, pipes[1], STDOUT_FILENO);
+            posix_spawn_file_actions_adddup2(&actions, pipes[1], STDERR_FILENO);
+            posix_spawn_file_actions_addclose(&actions, pipes[0]);
+            posix_spawn_file_actions_addclose(&actions, pipes[1]);
+            pid_t pid = 0;
+            result = posix_spawn(&pid, helper.fileSystemRepresentation, &actions, NULL, args, environ);
+            posix_spawn_file_actions_destroy(&actions);
+            close(pipes[1]);
+            if (result == 0) {
+                char buffer[4096]; ssize_t size;
+                while ((size = read(pipes[0], buffer, sizeof(buffer))) > 0) [output appendBytes:buffer length:size];
+                int status; waitpid(pid, &status, 0);
+            }
+            close(pipes[0]);
+        } else { result = errno; }
+        for (NSUInteger i = 0; i < all.count; ++i) free(args[i]);
+        free(args);
+        NSDictionary *reply = [NSJSONSerialization JSONObjectWithData:output options:0 error:nil];
+        NSString *message = reply[@"message"];
+        if (!message) message = result ? [NSString stringWithFormat:@"无法运行服务控制器：%s。请确认越狱已启用并重新安装。", strerror(result)] : [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
+        if (!message.length) message = @"服务控制器没有返回结果，请重新安装并确认越狱状态。";
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.busy = NO;
+            for (UIButton *button in self.buttons) button.enabled = YES;
+            self.statusLabel.text = message;
+            if ([command isEqualToString:@"log"]) {
+                UIViewController *viewer = [UIViewController new];
+                viewer.title = @"运行日志";
+                UITextView *text = [[UITextView alloc] initWithFrame:CGRectZero];
+                text.editable = NO; text.text = message;
+                text.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+                text.backgroundColor = UIColor.systemBackgroundColor;
+                viewer.view = text;
+                [self.navigationController pushViewController:viewer animated:YES];
+            }
+        });
+    });
 }
-- (void)loadConfiguration {
-    NSString *source = [NSString stringWithContentsOfFile:ConfigurationPath() encoding:NSUTF8StringEncoding error:nil];
-    if (!source) source = [NSString stringWithContentsOfFile:jbroot(@"/Library/DomainProxy/proxy.pac") encoding:NSUTF8StringEncoding error:nil];
-    self.ipField.text = [self capture:@"var PROXY_IP = \"([^\"]*)\";" in:source ?: @""] ?: @"";
-    self.portField.text = [self capture:@"var PROXY_PORT = ([0-9]+);" in:source ?: @""] ?: @"8080";
-    self.statusLabel.text = self.ipField.text.length ? @"已读取保存的配置，连接状态需在目标 App 中验证。" : @"尚未配置代理。";
-}
-- (void)showError:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"无法保存" message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-- (void)saveConfiguration {
+- (void)start {
     [self dismissKeyboard];
     NSString *ip = [self.ipField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    NSString *portText = [self.portField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    NSString *port = [self.portField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     struct in_addr address;
-    if (ip.length && inet_pton(AF_INET, ip.UTF8String, &address) != 1) {
-        [self showError:@"请输入有效的 IPv4 地址，例如 192.168.1.10。"];
-        return;
-    }
-    NSInteger port = portText.integerValue;
     NSCharacterSet *nonDigits = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789"] invertedSet];
-    if (portText.length == 0 || [portText rangeOfCharacterFromSet:nonDigits].location != NSNotFound || port < 1 || port > 65535) {
-        [self showError:@"端口必须是 1 到 65535 之间的整数。"];
+    if (inet_pton(AF_INET, ip.UTF8String, &address) != 1 || !port.length || [port rangeOfCharacterFromSet:nonDigits].location != NSNotFound || port.integerValue < 1 || port.integerValue > 65535) {
+        self.statusLabel.text = @"请输入有效的 IPv4 地址和 1 到 65535 之间的端口。";
         return;
     }
-    NSString *templatePath = [NSBundle.mainBundle pathForResource:@"proxy" ofType:@"pac"];
-    NSString *source = templatePath ? [NSString stringWithContentsOfFile:templatePath encoding:NSUTF8StringEncoding error:nil] : nil;
-    if (!source || ![source containsString:@"var PROXY_IP = \"\";"] || ![source containsString:@"var PROXY_PORT = 8080;"]) {
-        [self showError:@"安装包内的代理规则缺失，请重新安装此版本。"];
-        return;
-    }
-    source = [source stringByReplacingOccurrencesOfString:@"var PROXY_IP = \"\";" withString:[NSString stringWithFormat:@"var PROXY_IP = \"%@\";", ip]];
-    source = [source stringByReplacingOccurrencesOfString:@"var PROXY_PORT = 8080;" withString:[NSString stringWithFormat:@"var PROXY_PORT = %ld;", (long)port]];
-    NSString *path = ConfigurationPath();
-    NSError *error = nil;
-    if (![NSFileManager.defaultManager createDirectoryAtPath:path.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&error] ||
-        ![source writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error] ||
-        ![NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @0644} ofItemAtPath:path error:&error]) {
-        [self showError:[NSString stringWithFormat:@"配置写入失败：%@", error.localizedDescription ?: @"未知错误"]];
-        return;
-    }
-    self.ipField.text = ip;
-    self.portField.text = [NSString stringWithFormat:@"%ld", (long)port];
-    self.statusLabel.text = ip.length ? @"已保存。请彻底退出并重开目标 App；保存成功不代表代理连接成功。" : @"已保存为直连。请重启目标 App，IPv6 拦截仍然生效。";
-    UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, self.statusLabel.text);
+    [NSUserDefaults.standardUserDefaults setObject:ip forKey:@"ProxyIP"];
+    [NSUserDefaults.standardUserDefaults setObject:port forKey:@"ProxyPort"];
+    [self run:@"start" arguments:@[ip, port]];
 }
+- (void)stop { [self run:@"stop" arguments:@[]]; }
+- (void)refresh { [self run:@"status" arguments:@[]]; }
+- (void)log { [self run:@"log" arguments:@[]]; }
 @end
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
@@ -153,7 +179,6 @@ static NSString *ConfigurationPath(void) {
     return YES;
 }
 @end
-
 int main(int argc, char *argv[]) {
     @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(AppDelegate.class)); }
 }

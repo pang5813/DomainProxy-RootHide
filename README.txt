@@ -1,42 +1,46 @@
-DomainProxy 0.2.0 — RootHide 实验原型（iOS 15+），含桌面设置 App
+DomainProxy 0.3.0 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 
-功能：为注入进程的 CFNetwork / NSURLSession 设置 PAC；ip138.com 及子域名走
-HTTP 代理，其他域名 DIRECT。HTTPS 由 HTTP 代理 CONNECT，未实现解密。
-通过 socket/getaddrinfo hook 限制注入进程使用 IPv6。
+该版本不包含 MobileSubstrate 插件，不需要为目标 App 开启注入。
+桌面“域名代理”App 通过限定功能的 root 控制器启动独立 sing-box 隧道进程。
+这与 0.1/0.2 注入版本的实现不同，升级后应关闭旧版目标 App 注入并重启目标 App。
 
-这不是内核级透明代理，也不是全设备 IPv6 开关。自带网络栈、QUIC、独立网络
-服务进程、后台会话或不接受 PAC 的 App 可能绕过代理。RootHide 注入范围和
-沙盒文件访问需要真机验证，Safari 的 WebKit 网络进程尤其不能保证覆盖。
-IPv6-only / NAT64 网络可能因此无法联网。不要将本原型当作防泄漏工具。
+使用：
+1. 在启用了 Dopamine RootHide 越狱的设备上用 Sileo 安装 deb。
+2. 打开桌面“域名代理”，填写无认证 HTTP 上游的 IPv4 地址和端口。
+3. 先关闭其他 VPN，点击“保存并启动全局代理”。不需要开启 App 注入。
+4. 测试 ip138.com 的出口、非目标网站、IPv6。遇到错误，点击“查看运行日志”。
+5. 点击“停止全局代理”退出隧道；升级/卸载时安装脚本也会要求服务退出。
+   不设置开机自启；重启设备并重新越狱后需在 App 中重新启动。
 
-配置：
-推荐：安装后打开桌面“域名代理”App，填写 HTTP 代理的 IPv4 地址、端口并保存。
-然后在 RootHide 为目标 App 启用注入，彻底退出并重新打开目标 App。
-配置保存在 jbroot:/var/mobile/Library/Preferences/local.domainproxy.pac。
-清空 IP 后保存可关闭域名代理，但 IPv6 拦截仍生效。
-保存失败会明确报错；本 App 不宣称已测试连接。
+规则：
+- 通过独立 utun 隧道接管 IPv4/IPv6 路由，目标为全设备流量分流。
+- ip138.com 及其子域名通过 FakeIP DNS 映射、域名嗅探识别并转发到 HTTP 上游。
+- 目标域名 UDP 被拒绝（HTTP 上游不支持原生 UDP），其余 IPv4 流量直连。
+- 隧道内 IPv6 数据包被拒绝，DNS AAAA 返回空结果。这不是修改系统 IPv6 开关。
+- DNS 明文查询交给 223.5.5.5；现有缓存、独立加密 DNS/ECH/绑定物理网卡的流量
+  不保证可识别或拦截，不能把本实验版本当作无泄漏保证。
+- 上游地址排除在隧道路由外，避免代理回环；网络切换异常时应停止后重新启动。
+- 不提供崩溃断网开关；后台服务退出后网络可恢复直连。
 
-旧版手动配置（没有通过 App 保存时才读取）：
-1. 用 RootHide 环境的 Filza 找到越狱根目录内 Library/DomainProxy/proxy.pac。
-   不要假设固定为 /var/jb；程序使用 jbroot() 解析实际路径。
-2. 填 PROXY_IP 和 PROXY_PORT（仅支持 IPv4 地址、无认证 HTTP 上游）。
-   IP 留空时域名全部直连，但 IPv6 hook 仍生效。
-3. 在 RootHide 的 App 注入管理中只启用需要测试的 App，然后彻底退出并重开。
-   源码中的配置亦可在 GitHub 编译前修改；不要填写真实密码。
-4. 关闭该 App 的注入并重启 App，或卸载插件并重启 App，即恢复原状。
-   插件不修改系统网络配置，不需要恢复系统 IPv6 参数。
+状态与权限：
+- 控制器仅提供 start IPv4 端口、stop、status、log 四项，不执行任意命令或文件。
+- 控制器为 root 所有的 setuid 可执行文件，核心和模板只有包管理器可修改。
+- 服务配置、PID、日志位于 jbroot:/var/run/domainproxy（root 目录权限 0700）。
+- UI 中“进程运行”只表示进程存在，不表示全局接管、代理可达或 IPv6 拦截已验证。
+- 没有真机，当前无法确认 iOS 16.1 的 utun 创建、路由权限、Wi-Fi/蜂窝切换表现。
+  启动失败会返回错误和日志，不会显示虚假的“连接成功”。
 
-GitHub 编译：
-将本目录全部文件（包括隐藏的 .github）放入 GitHub 仓库。
-push 或 Actions -> Build RootHide deb -> Run workflow。
-成功后从 Artifacts 下载 DomainProxy-roothide，解压得到 deb，用 Sileo 安装。
-使用 roothide/theos，THEOS_PACKAGE_SCHEME=roothide；不是普通 rootless 包。
-官方说明：https://github.com/roothide/Developer
-本地有兼容 macOS 工具链时可运行：
-  gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+编译：
+GitHub Actions -> Build RootHide deb -> Run workflow。
+使用 roothide/theos 和 THEOS_PACKAGE_SCHEME=roothide，架构 iphoneos-arm64e。
+核心固定为 sing-box v1.12.0 / 2dcb86941f5db01bbe296acae555a3b1f38c0441，
+从源码交叉编译 GOOS=ios、GOARCH=arm64，使用 RootHide 应用权限签名。
+构建会检查规则、用原生核心验证 JSON、检查 deb 内包含 UI/控制器/核心且无注入库。
+成功后产物含 deb 和 SHA256 文件，下载到 downloads/。
 
-验证：
-  node tests/pac.test.cjs
-真机还需确认：ip138.com 显示代理出口、非目标站保持原出口、代理停止时目标
-请求失败、IPv6 请求失败、重启/卸载恢复。PAC 单元测试不能验证这些行为。
-当前 Windows 环境不能编译 iOS 动态库；只有 GitHub 构建成功才会产生 deb。
+许可与上游源码：
+sing-box 为 GPL-3.0-or-later，完整上游源码及构建脚本版本公开：
+https://github.com/SagerNet/sing-box/tree/2dcb86941f5db01bbe296acae555a3b1f38c0441
+安装包内 /usr/share/doc/local.domainproxy/COPYING.sing-box 附带其许可证。
+本仓库自写的 0.3.0 控制器、UI、规则与构建脚本亦按 GPL-3.0-or-later 发布。
+RootHide 开发说明：https://github.com/roothide/Developer

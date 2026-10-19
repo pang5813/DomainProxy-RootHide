@@ -1,0 +1,36 @@
+{
+  "log": {"level": "info", "timestamp": true},
+  "dns": {
+    "servers": [
+      {"type": "udp", "tag": "normal", "server": "223.5.5.5", "server_port": 53},
+      {"type": "fakeip", "tag": "fake", "inet4_range": "198.18.0.0/15"}
+    ],
+    "rules": [
+      {"query_type": ["AAAA"], "action": "predefined", "rcode": "NOERROR"},
+      {"domain_suffix": ["ip138.com"], "server": "fake"}
+    ],
+    "final": "normal",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [{
+    "type": "tun", "tag": "global", "interface_name": "utun99",
+    "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+    "mtu": 1500, "auto_route": true, "stack": "gvisor",
+    "route_exclude_address": ["192.0.2.1/32"]
+  }],
+  "outbounds": [
+    {"type": "direct", "tag": "direct"},
+    {"type": "http", "tag": "proxy", "server": "192.0.2.1", "server_port": 8080}
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "rules": [
+      {"ip_version": 6, "action": "reject"},
+      {"action": "sniff"},
+      {"protocol": "dns", "action": "hijack-dns"},
+      {"domain_suffix": ["ip138.com"], "network": "udp", "action": "reject"},
+      {"domain_suffix": ["ip138.com"], "outbound": "proxy"}
+    ],
+    "final": "direct"
+  }
+}

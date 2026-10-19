@@ -10,14 +10,34 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Test domain rules
-        run: node tests/pac.test.cjs
+      - name: Test global rules
+        run: python3 tests/config_test.py
       - name: Install packaging tools
         run: brew install make ldid dpkg
       - name: Install RootHide Theos
         run: |
           git clone --recursive --depth 1 https://github.com/roothide/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.6'
+          cache: false
+      - name: Build and validate standalone tunnel core
+        run: |
+          git clone https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          cd "$RUNNER_TEMP/sing-box"
+          git checkout 2dcb86941f5db01bbe296acae555a3b1f38c0441
+          go build -tags with_gvisor -o "$RUNNER_TEMP/sing-box-check" ./cmd/sing-box
+          "$RUNNER_TEMP/sing-box-check" check -c "$GITHUB_WORKSPACE/layout/Library/DomainProxy/global-config.json"
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export CGO_ENABLED=1 GOOS=ios GOARCH=arm64
+          export CC="$(xcrun --sdk iphoneos --find clang)"
+          export CGO_CFLAGS="-isysroot $SDK -arch arm64 -miphoneos-version-min=16.0"
+          export CGO_LDFLAGS="$CGO_CFLAGS"
+          mkdir -p "$GITHUB_WORKSPACE/layout/usr/libexec" "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy"
+          go build -tags with_gvisor -trimpath -ldflags='-s -w' -o "$GITHUB_WORKSPACE/layout/usr/libexec/domainproxy-core" ./cmd/sing-box
+          ldid -S"$GITHUB_WORKSPACE/settingsapp/entitlements.plist" "$GITHUB_WORKSPACE/layout/usr/libexec/domainproxy-core"
+          cp LICENSE "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/COPYING.sing-box"
       - name: Build
         run: gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
       - name: Verify package

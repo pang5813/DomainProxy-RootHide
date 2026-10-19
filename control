@@ -1,9 +1,9 @@
 Package: local.domainproxy
 Name: DomainProxy
-Version: 0.2.0
+Version: 0.3.0
 Architecture: iphoneos-arm64e
-Description: Experimental ip138.com HTTP proxy and per-process IPv6 blocking for RootHide.
+Description: Experimental standalone global TUN routing and HTTP proxy UI for Dopamine RootHide.
 Maintainer: DomainProxy
 Author: DomainProxy
 Section: Tweaks
-Depends: mobilesubstrate, uikittools
+Depends: uikittools
