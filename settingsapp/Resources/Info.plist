@@ -6,10 +6,12 @@
     <key>CFBundleDisplayName</key><string>域名代理</string>
     <key>CFBundleExecutable</key><string>DomainProxyApp</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>6</string>
-    <key>CFBundleShortVersionString</key><string>0.3.3</string>
+    <key>CFBundleVersion</key><string>7</string>
+    <key>CFBundleShortVersionString</key><string>0.3.4</string>
     <key>MinimumOSVersion</key><string>16.0</string>
     <key>LSRequiresIPhoneOS</key><true/>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+    <key>NSLocalNetworkUsageDescription</key><string>访问你填写的局域网取代理 API。</string>
     <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
     <key>UILaunchScreen</key><dict/>
     <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>

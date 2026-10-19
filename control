@@ -1,6 +1,6 @@
 Package: local.domainproxy
 Name: DomainProxy
-Version: 0.3.3
+Version: 0.3.4
 Architecture: iphoneos-arm64e
 Description: Experimental standalone global TUN routing and HTTP proxy UI for Dopamine RootHide.
 Maintainer: DomainProxy
