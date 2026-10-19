@@ -40,6 +40,14 @@ jobs:
           cp LICENSE "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/COPYING.sing-box"
       - name: Build
         run: gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+      - name: Preserve root controller ownership and setuid permission
+        run: |
+          for package in packages/*.deb; do
+            stage="$RUNNER_TEMP/domainproxy-final"
+            dpkg-deb --raw-extract "$package" "$stage"
+            chmod 4755 "$stage/usr/bin/domainproxyctl"
+            COPYFILE_DISABLE=1 dpkg-deb --build --root-owner-group -Zgzip "$stage" "$package"
+          done
       - name: Verify package
         run: |
           python3 tests/verify_deb.py packages/*.deb

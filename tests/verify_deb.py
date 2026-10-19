@@ -35,7 +35,8 @@ for filename in sys.argv[1:]:
         assert info["CFBundleDisplayName"] == "域名代理"
         assert info["CFBundleShortVersionString"] == "0.3.0"
         assert not any('MobileSubstrate' in name or name.endswith('.dylib') for name in entries), 'Unexpected injected plugin'
-        assert entries[required[2]].uid == 0 and entries[required[2]].mode & 0o4000, 'Root controller must be setuid and root-owned'
+        controller = entries[required[2]]
+        assert controller.uid == 0 and controller.mode & 0o4000, f'Root controller must be setuid and root-owned (uid={controller.uid}, mode={oct(controller.mode)})'
         assert entries[required[3]].mode & 0o111, 'Core must be executable'
     control = next(v for k, v in members.items() if k.startswith("control.tar"))
     with tarfile.open(fileobj=io.BytesIO(control)) as archive:
