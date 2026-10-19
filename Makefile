@@ -6,7 +6,5 @@ SUBPROJECTS = settingsapp controller
 include $(THEOS_MAKE_PATH)/aggregate.mk
 
 after-stage::
-	chmod 755 $(THEOS_STAGING_DIR)/DEBIAN/postinst $(THEOS_STAGING_DIR)/DEBIAN/postrm
-	chmod 755 $(THEOS_STAGING_DIR)/DEBIAN/prerm
 	chmod 4755 $(THEOS_STAGING_DIR)/usr/bin/domainproxyctl
 	chmod 755 $(THEOS_STAGING_DIR)/usr/libexec/domainproxy-core

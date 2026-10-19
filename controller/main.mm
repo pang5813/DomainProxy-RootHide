@@ -99,7 +99,10 @@ int main(int argc, char **argv) {
         if (![pidText writeToFile:Path(@"pid") atomically:YES encoding:NSUTF8StringEncoding error:&error]) { kill(pid, SIGTERM); Fail(@"记录服务状态失败。"); }
         usleep(800000);
         int status = 0;
-        if (waitpid(pid, &status, WNOHANG) == pid || RunningPID() != pid) {
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid || RunningPID() != pid) {
+            // A child whose identity cannot be verified must never be left running.
+            if (waited != pid) kill(pid, SIGTERM);
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil];
             Fail(log.length ? log : @"隧道核心启动后退出，请查看日志。");
         }
