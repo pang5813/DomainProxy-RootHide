@@ -1,4 +1,4 @@
-DomainProxy 0.3.1 — iOS 16.1 Dopamine RootHide 全局隧道实验版
+DomainProxy 0.3.2 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 
 该版本不包含 MobileSubstrate 插件，不需要为目标 App 开启注入。
 桌面“域名代理”App 通过限定功能的 root 控制器，让系统 launchd 启动 sing-box。
@@ -19,7 +19,8 @@ DomainProxy 0.3.1 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 
 规则：
 - 通过独立 utun 隧道接管 IPv4/IPv6 路由，目标为全设备流量分流。
-- ip138.com 及其子域名通过 FakeIP DNS 映射、域名嗅探识别并转发到 HTTP 上游。
+- zijieapi.com、fqnovel.com、ip138.com 及其全部子域名通过 FakeIP DNS 映射、
+  域名嗅探识别并转发到 HTTP 上游。
 - 目标域名 UDP 被拒绝（HTTP 上游不支持原生 UDP），其余 IPv4 流量直连。
 - 隧道内 IPv6 数据包被拒绝，DNS AAAA 返回空结果。这不是修改系统 IPv6 开关。
 - DNS 明文查询交给 223.5.5.5；现有缓存、独立加密 DNS/ECH/绑定物理网卡的流量
@@ -39,6 +40,9 @@ DomainProxy 0.3.1 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 GitHub Actions -> Build RootHide deb -> Run workflow。
 使用 roothide/theos 和 THEOS_PACKAGE_SCHEME=roothide，架构 iphoneos-arm64e。
 核心固定为 sing-box v1.12.0 / 2dcb86941f5db01bbe296acae555a3b1f38c0441，
+并对其 sing-tun v0.7.0-beta.1 的 Inet4GatewayAddr / Inet6GatewayAddr 做局部修补：
+GOOS=ios 与 darwin 走同一分支，使用 utun 本地地址作为网关，避免默认 .Next()
+生成 172.19.0.2 后将公网路由错误挂到 en0。补丁源见 patches/fix_ios_gateway.py。
 从源码交叉编译 GOOS=ios、GOARCH=arm64，使用 RootHide 应用权限签名。
 构建会检查规则、用原生核心验证 JSON、检查 deb 内包含 UI/控制器/核心且无注入库。
 成功后产物含 deb 和 SHA256 文件，下载到 downloads/。

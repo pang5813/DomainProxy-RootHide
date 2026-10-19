@@ -121,6 +121,7 @@ static pid_t RunningPID(void) {
     if (!realpath(actual, resolved)) return 0;
     return strcmp(expected, resolved) == 0 ? pid : 0;
 }
+#include "routes.h"
 static BOOL Stop(void) {
     pid_t pid = RunningPID();
     NSDictionary *job = Launchctl(@[@"print", ServiceTarget()]);
@@ -128,10 +129,10 @@ static BOOL Stop(void) {
         NSDictionary *removed = Launchctl(@[@"bootout", ServiceTarget()]);
         if ([removed[@"code"] intValue] != 0) return NO;
     }
-    if (!pid) return YES;
+    if (!pid) return RestoreScopedRoutes();
     if (kill(pid, SIGTERM) != 0 && errno != ESRCH) return NO;
     for (int i = 0; i < 50; ++i) {
-        if (RunningPID() != pid) { unlink(Path(@"pid").fileSystemRepresentation); return YES; }
+        if (RunningPID() != pid) { unlink(Path(@"pid").fileSystemRepresentation); usleep(500000); return RestoreScopedRoutes(); }
         usleep(100000);
     }
     return NO;
@@ -191,20 +192,23 @@ int main(int argc, char **argv) {
         };
         if (![service writeToFile:Path(@"service.plist") atomically:YES]) Fail(@"写入后台服务定义失败。");
         if (![@"" writeToFile:Path(@"service.log") atomically:YES encoding:NSUTF8StringEncoding error:&error]) Fail(@"创建运行日志失败。");
+        if (!PrepareScopedRoutes()) Fail(@"无法保留物理网络出站路由，未启动隧道。");
         NSDictionary *loaded = Launchctl(@[@"bootstrap", @"system", Path(@"service.plist")]);
-        if ([loaded[@"code"] intValue]) Fail([NSString stringWithFormat:@"launchd 无法加载隧道服务：%@", loaded[@"output"]]);
+        if ([loaded[@"code"] intValue]) { RestoreScopedRoutes(); Fail([NSString stringWithFormat:@"launchd 无法加载隧道服务：%@", loaded[@"output"]]); }
         pid_t pid = 0;
         for (int i = 0; i < 15 && !pid; ++i) { usleep(200000); pid = ServicePID(); }
         if (pid <= 1) {
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil];
             Launchctl(@[@"bootout", ServiceTarget()]);
+            RestoreScopedRoutes();
             Fail([NSString stringWithFormat:@"后台服务没有启动：%@", log ?: @"请查看日志"]);
         }
         NSString *pidText = [NSString stringWithFormat:@"%d", pid];
-        if (![pidText writeToFile:Path(@"pid") atomically:YES encoding:NSUTF8StringEncoding error:&error]) { Launchctl(@[@"bootout", ServiceTarget()]); Fail(@"记录服务状态失败。"); }
+        if (![pidText writeToFile:Path(@"pid") atomically:YES encoding:NSUTF8StringEncoding error:&error]) { Launchctl(@[@"bootout", ServiceTarget()]); RestoreScopedRoutes(); Fail(@"记录服务状态失败。"); }
         usleep(800000);
         if (RunningPID() != pid) {
             Launchctl(@[@"bootout", ServiceTarget()]);
+            RestoreScopedRoutes();
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil];
             Fail(log.length ? log : @"隧道核心启动后退出，请查看日志。");
         }

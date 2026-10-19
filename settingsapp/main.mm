@@ -70,7 +70,7 @@ extern char **environ;
         [stack.widthAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.widthAnchor constant:-48]
     ]];
     [stack addArrangedSubview:[self label:@"HTTP 上游代理" style:UIFontTextStyleTitle1]];
-    [stack addArrangedSubview:[self label:@"启动全局隧道后，仅 ip138.com 及其子域名走代理，其余 IPv4 流量直连。隧道内 IPv6 流量被拦截。" style:UIFontTextStyleBody]];
+    [stack addArrangedSubview:[self label:@"以下域名及其全部子域名走代理：\nzijieapi.com\nfqnovel.com\nip138.com\n\n其余 IPv4 流量直连。隧道内 IPv6 流量被拦截。" style:UIFontTextStyleBody]];
     [stack addArrangedSubview:[self label:@"代理 IPv4 地址" style:UIFontTextStyleHeadline]];
     self.ipField = [self field:@"例如 192.168.1.10" keyboard:UIKeyboardTypeDecimalPad];
     self.ipField.accessibilityLabel = @"代理 IPv4 地址";

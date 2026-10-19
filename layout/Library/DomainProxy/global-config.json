@@ -7,7 +7,7 @@
     ],
     "rules": [
       {"query_type": ["AAAA"], "action": "predefined", "rcode": "NOERROR"},
-      {"domain_suffix": ["ip138.com"], "server": "fake"}
+      {"domain_suffix": ["zijieapi.com", "fqnovel.com", "ip138.com"], "server": "fake"}
     ],
     "final": "normal",
     "strategy": "ipv4_only"
@@ -28,8 +28,8 @@
       {"ip_version": 6, "action": "reject"},
       {"action": "sniff"},
       {"protocol": "dns", "action": "hijack-dns"},
-      {"domain_suffix": ["ip138.com"], "network": "udp", "action": "reject"},
-      {"domain_suffix": ["ip138.com"], "outbound": "proxy"}
+      {"domain_suffix": ["zijieapi.com", "fqnovel.com", "ip138.com"], "network": "udp", "action": "reject"},
+      {"domain_suffix": ["zijieapi.com", "fqnovel.com", "ip138.com"], "outbound": "proxy"}
     ],
     "final": "direct"
   }

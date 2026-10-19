@@ -27,6 +27,11 @@ jobs:
           git clone https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
           cd "$RUNNER_TEMP/sing-box"
           git checkout 2dcb86941f5db01bbe296acae555a3b1f38c0441
+          go mod download github.com/sagernet/sing-tun
+          TUN_SOURCE="$(go list -m -f '{{.Dir}}' github.com/sagernet/sing-tun)"
+          cp -R "$TUN_SOURCE" "$RUNNER_TEMP/sing-tun-ios"
+          python3 "$GITHUB_WORKSPACE/patches/fix_ios_gateway.py" "$RUNNER_TEMP/sing-tun-ios"
+          go mod edit -replace "github.com/sagernet/sing-tun=$RUNNER_TEMP/sing-tun-ios"
           go build -tags with_gvisor -o "$RUNNER_TEMP/sing-box-check" ./cmd/sing-box
           "$RUNNER_TEMP/sing-box-check" check -c "$GITHUB_WORKSPACE/layout/Library/DomainProxy/global-config.json"
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -38,6 +43,7 @@ jobs:
           go build -tags with_gvisor -trimpath -ldflags='-s -w' -o "$GITHUB_WORKSPACE/layout/usr/libexec/domainproxy-core" ./cmd/sing-box
           ldid -S"$GITHUB_WORKSPACE/settingsapp/entitlements.plist" "$GITHUB_WORKSPACE/layout/usr/libexec/domainproxy-core"
           cp LICENSE "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/COPYING.sing-box"
+          cp "$GITHUB_WORKSPACE/patches/fix_ios_gateway.py" "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/ios-gateway-patch.py"
       - name: Build
         run: gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
       - name: Preserve root controller ownership and setuid permission
