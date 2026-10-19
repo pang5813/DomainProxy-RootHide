@@ -1,0 +1,28 @@
+name: Build RootHide deb
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test domain rules
+        run: node tests/pac.test.cjs
+      - name: Install packaging tools
+        run: brew install make ldid dpkg
+      - name: Install RootHide Theos
+        run: |
+          git clone --recursive --depth 1 https://github.com/roothide/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+      - name: Build
+        run: gmake package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: DomainProxy-roothide
+          path: packages/*.deb
+          if-no-files-found: error
