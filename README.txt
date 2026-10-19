@@ -1,4 +1,4 @@
-DomainProxy 0.3.2 — iOS 16.1 Dopamine RootHide 全局隧道实验版
+DomainProxy 0.3.3 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 
 该版本不包含 MobileSubstrate 插件，不需要为目标 App 开启注入。
 桌面“域名代理”App 通过限定功能的 root 控制器，让系统 launchd 启动 sing-box。

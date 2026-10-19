@@ -13,6 +13,15 @@
 #include <net/if.h>
 extern char **environ;
 extern "C" int proc_pidpath(int, void *, uint32_t);
+extern "C" int memorystatus_control(uint32_t, int32_t, uint32_t, void *, size_t);
+
+static BOOL SetCoreMemoryBudget(pid_t pid) {
+    // XNU MEMORYSTATUS_CMD_SET_JETSAM_TASK_LIMIT / GET_MEMLIMIT_PROPERTIES.
+    // RootHide's launchd proxy can ignore plist JetsamProperties; verify the kernel value.
+    struct { int32_t active; uint32_t activeFlags; int32_t inactive; uint32_t inactiveFlags; } limits = {};
+    if (memorystatus_control(6, pid, 256, NULL, 0) != 0) return NO;
+    return memorystatus_control(8, pid, 0, &limits, sizeof(limits)) == 0 && limits.active >= 256 && limits.inactive >= 256;
+}
 
 static NSString *StateDirectory(void) { return jbroot(@"/var/run/domainproxy"); }
 static NSString *CorePath(void) { return jbroot(@"/usr/libexec/domainproxy-core"); }
@@ -187,7 +196,7 @@ int main(int argc, char **argv) {
             @"ProgramArguments": @[CorePath(), @"run", @"-c", Path(@"config.json")],
             @"UserName": @"root", @"RunAtLoad": @YES, @"KeepAlive": @NO,
             @"ProcessType": @"Background", @"ExitTimeOut": @5,
-            @"EnvironmentVariables": @{@"PATH": @"/usr/bin:/bin:/usr/sbin:/sbin", @"HOME": @"/var/root"},
+            @"EnvironmentVariables": @{@"PATH": @"/usr/bin:/bin:/usr/sbin:/sbin", @"HOME": @"/var/root", @"GOMEMLIMIT": @"128MiB"},
             @"StandardOutPath": Path(@"service.log"), @"StandardErrorPath": Path(@"service.log")
         };
         if (![service writeToFile:Path(@"service.plist") atomically:YES]) Fail(@"写入后台服务定义失败。");
@@ -202,6 +211,11 @@ int main(int argc, char **argv) {
             Launchctl(@[@"bootout", ServiceTarget()]);
             RestoreScopedRoutes();
             Fail([NSString stringWithFormat:@"后台服务没有启动：%@", log ?: @"请查看日志"]);
+        }
+        if (!SetCoreMemoryBudget(pid)) {
+            Launchctl(@[@"bootout", ServiceTarget()]);
+            RestoreScopedRoutes();
+            Fail(@"无法设置核心后台内存限额，已停止，避免运行后被系统终止。");
         }
         NSString *pidText = [NSString stringWithFormat:@"%d", pid];
         if (![pidText writeToFile:Path(@"pid") atomically:YES encoding:NSUTF8StringEncoding error:&error]) { Launchctl(@[@"bootout", ServiceTarget()]); RestoreScopedRoutes(); Fail(@"记录服务状态失败。"); }
