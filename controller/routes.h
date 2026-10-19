@@ -1,5 +1,24 @@
 #include <sys/sysctl.h>
-#include <net/route.h>
+// Darwin routing-socket ABI (XNU bsd/net/route.h); omitted from public iOS SDKs.
+struct rt_msghdr {
+    uint16_t rtm_msglen;
+    uint8_t rtm_version, rtm_type;
+    uint16_t rtm_index, rtm_pad;
+    int32_t rtm_flags, rtm_addrs, rtm_pid, rtm_seq, rtm_errno, rtm_use;
+    uint32_t rtm_inits;
+    uint32_t rtm_metrics[14];
+};
+static_assert(sizeof(struct rt_msghdr) == 92, "Darwin routing header ABI");
+#ifndef NET_RT_DUMP
+#define NET_RT_DUMP 1
+#endif
+#define RTM_ADD 1
+#define RTM_DELETE 2
+#define RTF_GATEWAY 0x2
+#define RTF_IFSCOPE 0x1000000
+#define RTAX_DST 0
+#define RTAX_NETMASK 2
+#define RTAX_MAX 8
 
 // Preserve physical-interface reachability while global utun routes are active.
 static NSArray<NSData *> *RouteSnapshot(void) {

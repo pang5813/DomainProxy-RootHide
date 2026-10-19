@@ -18,6 +18,8 @@ jobs:
         run: |
           git clone --recursive --depth 1 https://github.com/roothide/theos.git "$HOME/theos"
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+      - name: Compile UI and controller first
+        run: gmake all FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.6'
