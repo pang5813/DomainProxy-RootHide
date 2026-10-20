@@ -12,6 +12,7 @@ extern char **environ;
 @property(nonatomic, strong) UITextField *portField;
 @property(nonatomic, strong) UITextField *apiField;
 @property(nonatomic, strong) UIButton *apiButton;
+@property(nonatomic, strong) UILabel *apiStatusLabel;
 @property(nonatomic) BOOL fetching;
 @property(nonatomic, strong) UILabel *statusLabel;
 @property(nonatomic, strong) NSMutableArray<UIButton *> *buttons;
@@ -80,7 +81,10 @@ extern char **environ;
     [stack addArrangedSubview:self.apiField];
     self.apiButton = [self button:@"获取并填入 IP 和端口" action:@selector(fetchProxy) primary:NO];
     [stack addArrangedSubview:self.apiButton];
-    [stack addArrangedSubview:[self label:@"接口需返回一条 IPv4:端口，例如 127.0.0.1:8888。获取后点击下方保存并启动即可应用。" style:UIFontTextStyleFootnote]];
+    self.apiStatusLabel = [self label:@"" style:UIFontTextStyleFootnote];
+    self.apiStatusLabel.textColor = UIColor.secondaryLabelColor;
+    [stack addArrangedSubview:self.apiStatusLabel];
+    [stack addArrangedSubview:[self label:@"支持纯文本 IPv4:端口（例如 127.0.0.1:8888）或包含 ip、port 的 JSON。获取后点击下方保存并启动即可应用。" style:UIFontTextStyleFootnote]];
     [stack addArrangedSubview:[self label:@"代理 IPv4 地址" style:UIFontTextStyleHeadline]];
     self.ipField = [self field:@"例如 192.168.1.10" keyboard:UIKeyboardTypeDecimalPad];
     self.ipField.accessibilityLabel = @"代理 IPv4 地址";
@@ -111,52 +115,86 @@ extern char **environ;
     NSString *value = [self.apiField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     [NSUserDefaults.standardUserDefaults setObject:value ?: @"" forKey:@"ProxyAPIURL"];
 }
+// Accept one validated endpoint from plain text or common API JSON envelopes.
+- (NSArray<NSString *> *)proxyEndpointFromValue:(id)value depth:(NSUInteger)depth {
+    if (!value || depth > 6) return nil;
+    if ([value isKindOfClass:NSDictionary.class]) {
+        id ip = value[@"ip"] ?: value[@"host"] ?: value[@"server"];
+        id port = value[@"port"];
+        if ([ip isKindOfClass:NSString.class] &&
+            ([port isKindOfClass:NSString.class] || [port isKindOfClass:NSNumber.class])) {
+            NSArray *endpoint = [self proxyEndpointFromValue:[NSString stringWithFormat:@"%@:%@", ip, port] depth:depth + 1];
+            if (endpoint) return endpoint;
+        }
+        for (NSString *key in @[@"data", @"result", @"list", @"proxies", @"proxy", @"proxy_list"] ) {
+            NSArray *endpoint = [self proxyEndpointFromValue:value[key] depth:depth + 1];
+            if (endpoint) return endpoint;
+        }
+    } else if ([value isKindOfClass:NSArray.class]) {
+        for (id item in value) {
+            NSArray *endpoint = [self proxyEndpointFromValue:item depth:depth + 1];
+            if (endpoint) return endpoint;
+        }
+    } else if ([value isKindOfClass:NSString.class]) {
+        NSString *body = [value stringByReplacingOccurrencesOfString:@"\uFEFF" withString:@""];
+        NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"\\A\\s*([0-9]{1,3}(?:\\.[0-9]{1,3}){3})\\s*:\\s*([0-9]{1,5})\\s*\\z" options:0 error:nil];
+        NSTextCheckingResult *match = [pattern firstMatchInString:body options:0 range:NSMakeRange(0, body.length)];
+        if (match) {
+            NSString *ip = [body substringWithRange:[match rangeAtIndex:1]];
+            NSInteger port = [[body substringWithRange:[match rangeAtIndex:2]] integerValue];
+            struct in_addr address;
+            if (inet_pton(AF_INET, ip.UTF8String, &address) == 1 && port >= 1 && port <= 65535)
+                return @[ip, [NSString stringWithFormat:@"%ld", (long)port]];
+        }
+    }
+    return nil;
+}
 - (void)fetchProxy {
-    if (self.fetching || self.busy) return;
+    if (self.fetching) return;
     [self dismissKeyboard];
     [self saveAPIURL];
     NSURL *url = [NSURL URLWithString:[NSUserDefaults.standardUserDefaults stringForKey:@"ProxyAPIURL"]];
     NSString *scheme = url.scheme.lowercaseString;
     if (!url.host.length || (! [scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"])) {
-        self.statusLabel.text = @"请输入完整的 http:// 或 https:// API 地址。";
+        self.apiStatusLabel.text = @"请输入完整的 http:// 或 https:// API 地址。";
         return;
     }
     self.fetching = YES; self.apiButton.enabled = NO;
-    self.statusLabel.text = @"正在获取代理…";
+    self.apiStatusLabel.text = @"正在获取代理…（最多等待 20 秒）";
+    UIButtonConfiguration *loading = [self.apiButton.configuration copy];
+    loading.title = @"正在获取…"; loading.showsActivityIndicator = YES;
+    self.apiButton.configuration = loading;
     NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     configuration.timeoutIntervalForRequest = 15;
     configuration.timeoutIntervalForResource = 20;
     configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    configuration.waitsForConnectivity = NO;
     NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration delegate:self delegateQueue:nil];
     [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         NSString *message = nil, *ip = nil, *port = nil;
         NSInteger code = [(NSHTTPURLResponse *)response statusCode];
-        if (error) message = @"获取失败，请检查 API 地址和网络后重试。";
+        if (error) message = [NSString stringWithFormat:@"获取失败：%@（错误码 %ld）。", error.localizedDescription, (long)error.code];
         else if (code < 200 || code >= 300) message = [NSString stringWithFormat:@"接口返回 HTTP %ld，未修改代理设置。", (long)code];
         else if (!data.length || data.length > 16384) message = @"接口返回为空或过长，请确认返回一条 IPv4:端口。";
         else {
             NSString *body = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
             body = [body stringByReplacingOccurrencesOfString:@"\uFEFF" withString:@""];
-            NSRegularExpression *pattern = [NSRegularExpression regularExpressionWithPattern:@"\\A\\s*([0-9]{1,3}(?:\\.[0-9]{1,3}){3})\\s*:\\s*([0-9]{1,5})\\s*\\z" options:0 error:nil];
-            NSTextCheckingResult *match = body ? [pattern firstMatchInString:body options:0 range:NSMakeRange(0, body.length)] : nil;
-            if (match) {
-                NSString *candidate = [body substringWithRange:[match rangeAtIndex:1]];
-                NSString *number = [body substringWithRange:[match rangeAtIndex:2]];
-                struct in_addr address;
-                if (inet_pton(AF_INET, candidate.UTF8String, &address) == 1 && number.integerValue >= 1 && number.integerValue <= 65535) {
-                    ip = candidate; port = [NSString stringWithFormat:@"%ld", (long)number.integerValue];
-                }
-            }
-            if (!ip) message = @"返回格式不正确，应为 IPv4:端口，例如 127.0.0.1:8888。";
+            id json = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingFragmentsAllowed error:nil];
+            NSArray *endpoint = [self proxyEndpointFromValue:json ?: body depth:0];
+            if (endpoint) { ip = endpoint[0]; port = endpoint[1]; }
+            if (!ip) message = @"接口未返回有效代理。支持 IPv4:端口，或包含 ip/port 的 JSON；请检查接口是否返回了鉴权、白名单或余额错误。";
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.fetching = NO; self.apiButton.enabled = !self.busy;
+            self.fetching = NO; self.apiButton.enabled = YES;
+            UIButtonConfiguration *finished = [self.apiButton.configuration copy];
+            finished.title = @"获取并填入 IP 和端口"; finished.showsActivityIndicator = NO;
+            self.apiButton.configuration = finished;
             if (ip) {
                 self.ipField.text = ip; self.portField.text = port;
                 [NSUserDefaults.standardUserDefaults setObject:ip forKey:@"ProxyIP"];
                 [NSUserDefaults.standardUserDefaults setObject:port forKey:@"ProxyPort"];
-                self.statusLabel.text = @"已填入并保存 IP 和端口，点击“保存并启动全局代理”应用。";
-            } else self.statusLabel.text = message;
+                self.apiStatusLabel.text = [NSString stringWithFormat:@"已填入 %@:%@，点击“保存并启动全局代理”应用。", ip, port];
+            } else self.apiStatusLabel.text = message;
         });
         [session finishTasksAndInvalidate];
     }] resume];
@@ -172,7 +210,7 @@ extern char **environ;
 - (void)run:(NSString *)command arguments:(NSArray<NSString *> *)arguments {
     if (self.busy) return;
     self.busy = YES;
-    for (UIButton *button in self.buttons) button.enabled = NO;
+    for (UIButton *button in self.buttons) button.enabled = button == self.apiButton && !self.fetching;
     self.statusLabel.text = @"正在处理…";
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         NSString *helper = jbroot(@"/usr/bin/domainproxyctl");
@@ -208,7 +246,7 @@ extern char **environ;
         if (!message.length) message = @"服务控制器没有返回结果，请重新安装并确认越狱状态。";
         dispatch_async(dispatch_get_main_queue(), ^{
             self.busy = NO;
-            for (UIButton *button in self.buttons) button.enabled = !(button == self.apiButton && self.fetching);
+            for (UIButton *button in self.buttons) button.enabled = button != self.apiButton || !self.fetching;
             self.statusLabel.text = message;
             if ([command isEqualToString:@"log"]) {
                 UIViewController *viewer = [UIViewController new];

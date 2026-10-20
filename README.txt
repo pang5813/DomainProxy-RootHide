@@ -1,4 +1,4 @@
-DomainProxy 0.3.4 — iOS 16.1 Dopamine RootHide 全局隧道实验版
+DomainProxy 0.3.5 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 
 该版本不包含 MobileSubstrate 插件，不需要为目标 App 开启注入。
 桌面“域名代理”App 通过限定功能的 root 控制器，让系统 launchd 启动 sing-box。
@@ -7,6 +7,9 @@ DomainProxy 0.3.4 — iOS 16.1 Dopamine RootHide 全局隧道实验版
 自动停止服务并显示具体结果。它只能验证当次探测，不代表全设备长期无泄漏。
 当前启用 debug 日志；日志界面去除 ANSI 颜色码，并附带当前 utun 收发计数。
 这与 0.1/0.2 注入版本的实现不同，升级后应关闭旧版目标 App 注入并重启目标 App。
+
+0.3.5：取代理按钮独立于服务状态操作，按钮下方直接显示进度和具体错误；
+支持纯文本 IPv4:端口及常见 JSON 接口返回，获取成功自动保存。
 
 使用：
 1. 在启用了 Dopamine RootHide 越狱的设备上用 Sileo 安装 deb。
