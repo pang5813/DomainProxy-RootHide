@@ -34,7 +34,7 @@ for filename in sys.argv[1:]:
         info = plistlib.loads(archive.extractfile(entries[required[1]]).read())
         assert info["CFBundleIdentifier"] == "local.domainproxy.settings"
         assert info["CFBundleDisplayName"] == "域名代理"
-        assert info["CFBundleShortVersionString"] == "0.4.0"
+        assert info["CFBundleShortVersionString"] == "0.4.1"
         assert info["CFBundleIcons"]["CFBundlePrimaryIcon"]["CFBundleIconFiles"]
         for icon, size in [("AppIcon60@2x.png", 120), ("AppIcon60@3x.png", 180), ("AppIcon76@2x.png", 152), ("AppIcon83.5@2x.png", 167)]:
             icon_path = "Applications/DomainProxyApp.app/" + icon

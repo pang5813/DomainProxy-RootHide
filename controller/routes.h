@@ -57,19 +57,30 @@ static int ChangeRoute(NSData *wire, int operation) {
     close(fd); return result;
 }
 static BOOL RestoreScopedRoutes(void) {
-    NSArray *saved = [NSArray arrayWithContentsOfFile:Path(@"scoped-routes.plist")];
+    // Restore a missing physical default before deleting our scoped copies.
+    // RTM_ADD never replaces an existing default selected by the system.
+    NSArray *defaults = [NSArray arrayWithContentsOfFile:Path(@"default-routes.plist")];
     BOOL ok = YES;
+    for (NSData *wire in defaults) {
+        int code = ChangeRoute(wire, RTM_ADD);
+        if (code && code != EEXIST) ok = NO;
+    }
+    NSArray *saved = [NSArray arrayWithContentsOfFile:Path(@"scoped-routes.plist")];
     for (NSData *wire in saved) {
         int code = ChangeRoute(wire, RTM_DELETE);
         if (code && code != ESRCH) ok = NO;
     }
-    if (ok) unlink(Path(@"scoped-routes.plist").fileSystemRepresentation);
+    if (ok) {
+        unlink(Path(@"scoped-routes.plist").fileSystemRepresentation);
+        unlink(Path(@"default-routes.plist").fileSystemRepresentation);
+    }
     return ok;
 }
 static BOOL PrepareScopedRoutes(void) {
     NSArray *snapshot = RouteSnapshot();
     if (!snapshot) return NO;
     NSMutableArray *added = [NSMutableArray new];
+    NSMutableArray *defaults = [NSMutableArray new];
     for (NSData *wire in snapshot) {
         struct rt_msghdr *r = (struct rt_msghdr *)wire.bytes;
         if (!(r->rtm_flags & RTF_GATEWAY) || (r->rtm_flags & RTF_IFSCOPE)) continue;
@@ -86,6 +97,10 @@ static BOOL PrepareScopedRoutes(void) {
             cursor += step;
         }
         if (!destination || destination->sin_addr.s_addr || !maskIsZero) continue;
+        char interfaceName[IF_NAMESIZE] = {};
+        if (!if_indextoname(r->rtm_index, interfaceName) || !strncmp(interfaceName, "utun", 4)) continue;
+        [defaults addObject:wire];
+        if (![defaults writeToFile:Path(@"default-routes.plist") atomically:YES]) return NO;
         NSMutableData *scoped = [wire mutableCopy];
         ((struct rt_msghdr *)scoped.mutableBytes)->rtm_flags |= RTF_IFSCOPE;
         int code = ChangeRoute(scoped, RTM_ADD);
@@ -99,5 +114,5 @@ static BOOL PrepareScopedRoutes(void) {
             RestoreScopedRoutes(); return NO;
         }
     }
-    return YES;
+    return defaults.count > 0;
 }

@@ -1,6 +1,8 @@
-DomainProxy 0.4.0 — iOS 16.1 Dopamine RootHide
+DomainProxy 0.4.1 — iOS 16.1 Dopamine RootHide
 
 HTTP / SOCKS5 上游、运行中热切换、后台 HTTP 控制 API。
+0.4.1 修复 iOS 分段路由遗漏：保留物理默认路由，防止 utun 自身成为出站接口。
+停止时还会恢复启动前保存的物理默认路由（不替换系统已有路由）。
 App 无需为目标应用开启注入。核心由 launchd 独立运行。
 
 使用：
@@ -50,7 +52,7 @@ curl 'http://手机Wi-Fi地址:9099/v1/proxy' -H 'Authorization: Bearer 从App�
 - 加密 DNS、ECH、应用缓存、绑定物理网卡等不能保证完整识别。
 - HTTP/SOCKS5 使用 sing-box 内置拨号器，自动绑定物理接口，换 IP 无需改隧道路由。
 - 不提供断线锁网。切换 Wi-Fi/蜂窝出现异常时停止后重启服务。
-- 0.4.0 版本新增能力需真机验证；编译与测试不代表所有 App 都已接管。
+- 0.4.1 版本新增能力需真机验证；编译与测试不代表所有 App 都已接管。
 - -1009 表示当前网络不可用或 App 联网受限，请检查 App 的系统联网权限。
 
 状态与权限：

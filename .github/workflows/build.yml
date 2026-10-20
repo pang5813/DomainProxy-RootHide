@@ -35,7 +35,10 @@ jobs:
           TUN_SOURCE="$(go list -m -f '{{.Dir}}' github.com/sagernet/sing-tun)"
           cp -R "$TUN_SOURCE" "$RUNNER_TEMP/sing-tun-ios"
           python3 "$GITHUB_WORKSPACE/patches/fix_ios_gateway.py" "$RUNNER_TEMP/sing-tun-ios"
+          cp "$GITHUB_WORKSPACE/patches/ios_routes_test.go" "$RUNNER_TEMP/sing-tun-ios/domainproxy_routes_test.go"
+          python3 "$GITHUB_WORKSPACE/tests/ios_patch_test.py" "$RUNNER_TEMP/sing-tun-ios"
           go mod edit -replace "github.com/sagernet/sing-tun=$RUNNER_TEMP/sing-tun-ios"
+          go test github.com/sagernet/sing-tun -run TestDomainProxySplitRoutes -count=1
           go build -tags with_gvisor -o "$RUNNER_TEMP/sing-box-check" ./cmd/sing-box
           "$RUNNER_TEMP/sing-box-check" check -c "$GITHUB_WORKSPACE/layout/Library/DomainProxy/global-config.json"
           python3 "$GITHUB_WORKSPACE/tests/core_api_test.py" "$RUNNER_TEMP/sing-box-check"
