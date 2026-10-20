@@ -66,7 +66,8 @@ def response(url):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
                                         urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
     try:
-        with opener.open(url, timeout=12) as request:
+        probe = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with opener.open(probe, timeout=12) as request:
             request.read(256)
             return request.status
     except urllib.error.HTTPError as error:
