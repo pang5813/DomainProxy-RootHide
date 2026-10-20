@@ -1,58 +1,78 @@
-DomainProxy 0.3.5 — iOS 16.1 Dopamine RootHide 全局隧道实验版
+DomainProxy 0.4.0 — iOS 16.1 Dopamine RootHide
 
-该版本不包含 MobileSubstrate 插件，不需要为目标 App 开启注入。
-桌面“域名代理”App 通过限定功能的 root 控制器，让系统 launchd 启动 sing-box。
-核心不再作为设置 App 的普通子进程运行，以避免依赖 UI 的后台生命周期。
-启动后发送一次普通域名 DNS 探测，并检查 utun99 双向计数是否增加；未通过则
-自动停止服务并显示具体结果。它只能验证当次探测，不代表全设备长期无泄漏。
-当前启用 debug 日志；日志界面去除 ANSI 颜色码，并附带当前 utun 收发计数。
-这与 0.1/0.2 注入版本的实现不同，升级后应关闭旧版目标 App 注入并重启目标 App。
-
-0.3.5：取代理按钮独立于服务状态操作，按钮下方直接显示进度和具体错误；
-支持纯文本 IPv4:端口及常见 JSON 接口返回，获取成功自动保存。
+HTTP / SOCKS5 上游、运行中热切换、后台 HTTP 控制 API。
+App 无需为目标应用开启注入。核心由 launchd 独立运行。
 
 使用：
-1. 在启用了 Dopamine RootHide 越狱的设备上用 Sileo 安装 deb。
-2. 打开桌面“域名代理”，填写无认证 HTTP 上游的 IPv4 地址和端口。
-3. 先关闭其他 VPN，点击“保存并启动全局代理”。不需要开启 App 注入。
-4. 测试 ip138.com 的出口、非目标网站、IPv6。遇到错误，点击“查看运行日志”。
-5. 点击“停止全局代理”退出隧道；升级/卸载时安装脚本也会要求服务退出。
-  服务定义动态写入 /var/run，按需用 launchctl bootstrap/bootout 管理，
-  不设置开机自启；重启设备并重新越狱后需在 App 中重新启动。
+1. 用 Sileo 安装 deb，打开桌面“域名代理”，先关闭其他 VPN。
+2. 填写 IPv4、端口，选择 HTTP / SOCKS5；需要认证时填写账号密码。
+   可从取代理 API 获取并填入 IP:端口，协议和账号密码由你在界面选择。
+3. 首次点击“保存并启动全局代理”。启动自检检查 DNS 与 utun99 双向收发。
+4. 运行中修改代理后，点击“切换代理（不重启服务）”。
+   此操作仅更换核心内部的上游出口，不重新加载配置、不重建隧道、不重启进程。
+   默认关闭旧代理连接，应用需重新建立连接；新连接使用新代理。
+   直连连接不受这个切换动作影响。不能把已建立的 TCP 会话迁移到另一个代理。
+5. 点击“刷新服务状态”查看当前上游和 PID，验证出口请访问 ip138.com。
+6. 点击“停止全局代理”恢复系统网络，同时关闭 HTTP 切换接口。
 
-规则：
-- 通过独立 utun 隧道接管 IPv4/IPv6 路由，目标为全设备流量分流。
-- zijieapi.com、fqnovel.com、ip138.com 及其全部子域名通过 FakeIP DNS 映射、
-  域名嗅探识别并转发到 HTTP 上游。
-- 目标域名 UDP 被拒绝（HTTP 上游不支持原生 UDP），其余 IPv4 流量直连。
-- 隧道内 IPv6 数据包被拒绝，DNS AAAA 返回空结果。这不是修改系统 IPv6 开关。
-- DNS 明文查询交给 223.5.5.5；现有缓存、独立加密 DNS/ECH/绑定物理网卡的流量
-  不保证可识别或拦截，不能把本实验版本当作无泄漏保证。
-- 上游地址排除在隧道路由外，避免代理回环；网络切换异常时应停止后重新启动。
-- 不提供崩溃断网开关；后台服务退出后网络可恢复直连。
+后台 HTTP API：
+- 接口与隧道核心同生命周期，App 不在前台、退出 App 后仍可调用。
+- 手机本机地址：http://127.0.0.1:9099/v1/proxy
+- 局域网地址：http://手机Wi-Fi地址:9099/v1/proxy
+- “允许局域网调用”在启动服务时应用；关闭后只监听 127.0.0.1。
+- “查看并复制 API 调用示例”会复制含独立随机密钥的 curl 示例。
+- 必须带 Authorization: Bearer 密钥；密钥不能放在 URL 中。
+- 此接口使用 HTTP 明文，仅在可信局域网使用；不要将 9099 映射到公网。
+
+切换示例（全部为占位值，请替换）：
+curl -X POST 'http://手机Wi-Fi地址:9099/v1/proxy'   -H 'Authorization: Bearer 从App复制的密钥'   -H 'Content-Type: application/json'   -d '{"type":"socks5","server":"192.0.2.10","server_port":1080,"username":"","password":"","close_existing":true}'
+
+HTTP 上游将 type 改成 http；支持 POST 或 PUT。
+必须提供 type、server（IPv4）、server_port（1..65535）。
+username/password 可省略，省略表示无认证，不继承旧账号密码。
+close_existing 默认 true：关闭旧代理连接，促使应用重新连接。
+传 false：保留已有代理连接直到自然关闭，新建连接仍使用新代理。
+切换成功只表示配置已应用，不表示新上游一定可用或出口已验证。
+非法参数、保存失败时保留旧上游；网络请求超时后请 GET 查询确认结果。
+
+状态示例：
+curl 'http://手机Wi-Fi地址:9099/v1/proxy' -H 'Authorization: Bearer 从App复制的密钥'
+返回当前 type、server、server_port、username、password_set、generation 和 pid。
+不返回密码或控制密钥。成功切换响应含 pid 和 closed_connections。
+同一核心 PID 在切换前后保持一致；generation 每次切换递增。
+未认证返回 401，参数错误返回 400，服务内部保存失败返回 500。
+
+规则与限制：
+- zijieapi.com、fqnovel.com、ip138.com 及全部子域名通过 HTTP/SOCKS5 上游。
+- 其余 IPv4 流量直连。目标域名 UDP 仍拒绝；SOCKS5 也只用于 TCP。
+- 独立 utun99 接管路由；隧道内 IPv6 拒绝，DNS AAAA 返回空结果。
+- DNS 明文发至 223.5.5.5，FakeIP 与域名嗅探用于目标分流。
+- 加密 DNS、ECH、应用缓存、绑定物理网卡等不能保证完整识别。
+- HTTP/SOCKS5 使用 sing-box 内置拨号器，自动绑定物理接口，换 IP 无需改隧道路由。
+- 不提供断线锁网。切换 Wi-Fi/蜂窝出现异常时停止后重启服务。
+- 0.4.0 版本新增能力需真机验证；编译与测试不代表所有 App 都已接管。
+- -1009 表示当前网络不可用或 App 联网受限，请检查 App 的系统联网权限。
 
 状态与权限：
-- 控制器仅提供 start IPv4 端口、stop、status、log 四项，不执行任意命令或文件。
-- 控制器为 root 所有的 setuid 可执行文件，核心和模板只有包管理器可修改。
-- 服务配置、PID、日志位于 jbroot:/var/run/domainproxy（root 目录权限 0700）。
-- UI 中“进程运行”只表示进程存在，不表示全局接管、代理可达或 IPv6 拦截已验证。
-- 没有真机，当前无法确认 iOS 16.1 的 utun 创建、路由权限、Wi-Fi/蜂窝切换表现。
-  启动失败会返回错误和日志，不会显示虚假的“连接成功”。
+- root 控制器仅实现 start/switch、JSON 参数版本、stop/status/log/api-info。
+- 不执行任意 shell 命令或任意路径文件。
+- 配置、API 密钥、当前上游、PID、日志保存在 jbroot:/var/run/domainproxy，目录 0700。
+- 上游账号密码保存在 App 本地设置及 root 私有运行配置中。
+- API 密钥在当前运行目录保留期间保持不变，重启设备后可能重新生成。
+- 重启设备并越狱后需重新启动；不设置开机自启；卸载/升级会停止服务。
 
-编译：
-GitHub Actions -> Build RootHide deb -> Run workflow。
-使用 roothide/theos 和 THEOS_PACKAGE_SCHEME=roothide，架构 iphoneos-arm64e。
-核心固定为 sing-box v1.12.0 / 2dcb86941f5db01bbe296acae555a3b1f38c0441，
-并对其 sing-tun v0.7.0-beta.1 的 Inet4GatewayAddr / Inet6GatewayAddr 做局部修补：
-GOOS=ios 与 darwin 走同一分支，使用 utun 本地地址作为网关，避免默认 .Next()
-生成 172.19.0.2 后将公网路由错误挂到 en0。补丁源见 patches/fix_ios_gateway.py。
-从源码交叉编译 GOOS=ios、GOARCH=arm64，使用 RootHide 应用权限签名。
-构建会检查规则、用原生核心验证 JSON、检查 deb 内包含 UI/控制器/核心且无注入库。
-成功后产物含 deb 和 SHA256 文件，下载到 downloads/。
+编译与验证：
+GitHub Actions -> Build RootHide deb。使用 roothide/theos，iphoneos-arm64e。
+核心固定 sing-box v1.12.0 / 2dcb86941f5db01bbe296acae555a3b1f38c0441。
+patches/fix_ios_gateway.py 修复 iOS utun 网关地址。
+patches/install_dynamic.py 安装 patches/dynamic 的核心内动态出口和 HTTP API。
+构建执行真实 HTTP CONNECT / SOCKS5 认证切换、连接保留/断开、鉴权、
+非法请求、保存失败保留旧配置及并发竞态测试，然后验证配置和 deb 权限。
+完成后下载 deb 与 SHA256 到 downloads/。
 
 许可与上游源码：
-sing-box 为 GPL-3.0-or-later，完整上游源码及构建脚本版本公开：
+本项目及核心修改遵循 GPL-3.0-or-later。
+https://github.com/pang5813/DomainProxy-RootHide
 https://github.com/SagerNet/sing-box/tree/2dcb86941f5db01bbe296acae555a3b1f38c0441
-安装包内 /usr/share/doc/local.domainproxy/COPYING.sing-box 附带其许可证。
-本仓库自写的 0.3.0 控制器、UI、规则与构建脚本亦按 GPL-3.0-or-later 发布。
-RootHide 开发说明：https://github.com/roothide/Developer
+deb 中 /usr/share/doc/local.domainproxy 附带许可证和核心补丁源码。
+RootHide：https://github.com/roothide/Developer

@@ -6,8 +6,8 @@
     <key>CFBundleDisplayName</key><string>域名代理</string>
     <key>CFBundleExecutable</key><string>DomainProxyApp</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>8</string>
-    <key>CFBundleShortVersionString</key><string>0.3.5</string>
+    <key>CFBundleVersion</key><string>9</string>
+    <key>CFBundleShortVersionString</key><string>0.4.0</string>
     <key>MinimumOSVersion</key><string>16.0</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>

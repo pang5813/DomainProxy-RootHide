@@ -12,6 +12,9 @@ assert any(r.get('action') == 'hijack-dns' for r in rules)
 assert any(r.get('domain_suffix') == domains and r.get('outbound') == 'proxy' for r in rules)
 assert any(r.get('domain_suffix') == domains and r.get('network') == 'udp' and r.get('action') == 'reject' for r in rules)
 assert config['route']['final'] == 'direct'
-assert config['outbounds'][1]['type'] == 'http'
+assert config['outbounds'][1]['type'] == 'domainproxy'
+assert config['outbounds'][1]['upstream_type'] == 'http'
+assert config['outbounds'][1]['api_listen'] == '127.0.0.1:9099'
+assert 'route_exclude_address' not in tun, 'Hot-swappable upstreams use interface-bound dialers'
 assert any(r.get('domain_suffix') == domains and r.get('server') == 'fake' for r in config['dns']['rules'])
 print('Global routing, fake DNS, HTTP outbound and IPv6 rejection rules verified')

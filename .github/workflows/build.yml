@@ -29,6 +29,8 @@ jobs:
           git clone https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
           cd "$RUNNER_TEMP/sing-box"
           git checkout 2dcb86941f5db01bbe296acae555a3b1f38c0441
+          python3 "$GITHUB_WORKSPACE/patches/install_dynamic.py" "$RUNNER_TEMP/sing-box"
+          go test -race ./protocol/domainproxy
           go mod download github.com/sagernet/sing-tun
           TUN_SOURCE="$(go list -m -f '{{.Dir}}' github.com/sagernet/sing-tun)"
           cp -R "$TUN_SOURCE" "$RUNNER_TEMP/sing-tun-ios"
@@ -44,6 +46,8 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/layout/usr/libexec" "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy"
           go build -tags with_gvisor -trimpath -ldflags='-s -w' -o "$GITHUB_WORKSPACE/layout/usr/libexec/domainproxy-core" ./cmd/sing-box
           ldid -S"$GITHUB_WORKSPACE/settingsapp/entitlements.plist" "$GITHUB_WORKSPACE/layout/usr/libexec/domainproxy-core"
+          cp "$GITHUB_WORKSPACE/patches/dynamic/"*.go "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/"
+          cp "$GITHUB_WORKSPACE/patches/install_dynamic.py" "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/"
           cp LICENSE "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/COPYING.sing-box"
           cp "$GITHUB_WORKSPACE/patches/fix_ios_gateway.py" "$GITHUB_WORKSPACE/layout/usr/share/doc/local.domainproxy/ios-gateway-patch.py"
       - name: Build

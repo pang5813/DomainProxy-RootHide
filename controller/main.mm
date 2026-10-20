@@ -131,6 +131,67 @@ static pid_t RunningPID(void) {
     return strcmp(expected, resolved) == 0 ? pid : 0;
 }
 #include "routes.h"
+static NSDictionary *ControlRequest(NSString *method, NSDictionary *body) {
+    NSString *secret = [NSString stringWithContentsOfFile:Path(@"api-token") encoding:NSUTF8StringEncoding error:nil];
+    if (secret.length < 32) Fail(@"没有 API 密钥，请先启动新版服务。");
+    NSData *json = body ? [NSJSONSerialization dataWithJSONObject:body options:0 error:nil] : [NSData data];
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) Fail(@"无法创建本机 API 连接。");
+    struct timeval timeout = {5, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    int yes = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
+    struct sockaddr_in address = {};
+    address.sin_len = sizeof(address); address.sin_family = AF_INET; address.sin_port = htons(9099);
+    inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+    if (connect(fd, (struct sockaddr *)&address, sizeof(address))) { close(fd); Fail(@"切换 API 未运行，请先启动新版全局服务。"); }
+    NSString *header = [NSString stringWithFormat:@"%@ /v1/proxy HTTP/1.1\r\nHost: 127.0.0.1:9099\r\nAuthorization: Bearer %@\r\nContent-Type: application/json\r\nContent-Length: %lu\r\nConnection: close\r\n\r\n", method, secret, (unsigned long)json.length];
+    NSMutableData *request = [[header dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+    [request appendData:json];
+    NSUInteger offset = 0;
+    while (offset < request.length) {
+        ssize_t sent = send(fd, (const char *)request.bytes + offset, request.length - offset, 0);
+        if (sent <= 0) { close(fd); Fail(@"发送切换请求失败。"); }
+        offset += sent;
+    }
+    NSMutableData *response = [NSMutableData data];
+    char buffer[2048]; ssize_t count;
+    while ((count = recv(fd, buffer, sizeof(buffer), 0)) > 0 && response.length < 32768) [response appendBytes:buffer length:count];
+    close(fd);
+    NSData *separator = [@"\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding];
+    NSRange range = [response rangeOfData:separator options:0 range:NSMakeRange(0, response.length)];
+    if (count < 0 || range.location == NSNotFound) Fail(@"切换 API 响应超时或无效，请刷新状态确认结果。");
+    NSDictionary *reply = [NSJSONSerialization JSONObjectWithData:[response subdataWithRange:NSMakeRange(NSMaxRange(range), response.length - NSMaxRange(range))] options:0 error:nil];
+    if (![reply isKindOfClass:NSDictionary.class]) Fail(@"切换 API 返回无效数据。");
+    return reply;
+}
+static NSDictionary *ProxyOptions(int argc, char **argv, BOOL jsonInput) {
+    NSDictionary *input = nil;
+    if (jsonInput) {
+        NSMutableData *data = [NSMutableData data];
+        char buffer[1024]; ssize_t count;
+        while (data.length <= 8192 && (count = read(STDIN_FILENO, buffer, sizeof(buffer))) > 0) [data appendBytes:buffer length:count];
+        if (data.length > 8192) Fail(@"代理参数过长。");
+        input = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    } else if (argc == 4 || argc == 5) {
+        input = @{@"server": @(argv[2]), @"server_port": @(argv[3]), @"type": argc == 5 ? @(argv[4]) : @"http"};
+    }
+    if (![input isKindOfClass:NSDictionary.class]) Fail(@"代理参数必须为 JSON 对象。");
+    NSString *ip = input[@"server"], *type = input[@"type"] ?: @"http";
+    NSString *user = input[@"username"] ?: @"", *password = input[@"password"] ?: @"";
+    id number = input[@"server_port"];
+    if (![ip isKindOfClass:NSString.class] || ![type isKindOfClass:NSString.class] || ![user isKindOfClass:NSString.class] || ![password isKindOfClass:NSString.class] || (![number isKindOfClass:NSString.class] && ![number isKindOfClass:NSNumber.class])) Fail(@"代理参数类型不正确。");
+    struct in_addr addr;
+    if (inet_pton(AF_INET, ip.UTF8String, &addr) != 1 || !addr.s_addr || (ntohl(addr.s_addr) >> 28) >= 14) Fail(@"请输入有效的 IPv4 地址。");
+    NSString *port = [number description];
+    if (!port.length || [port rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"0123456789"].invertedSet].location != NSNotFound || port.integerValue < 1 || port.integerValue > 65535) Fail(@"端口必须为 1 到 65535。");
+    if ((ntohl(addr.s_addr) >> 24) == 127 && port.integerValue == 9099) Fail(@"上游不能指向切换 API 自身。");
+    if (![@[@"http", @"socks5"] containsObject:type]) Fail(@"代理类型必须为 http 或 socks5。");
+    NSString *credentials = [user stringByAppendingString:password];
+    if ([user lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 255 || [password lengthOfBytesUsingEncoding:NSUTF8StringEncoding] > 255 || (!user.length && password.length) || [credentials rangeOfCharacterFromSet:NSCharacterSet.controlCharacterSet].location != NSNotFound) Fail(@"代理账号密码无效。");
+    return @{@"server": ip, @"server_port": @(port.integerValue), @"type": type, @"username": user, @"password": password,
+             @"api_lan": @([input[@"api_lan"] boolValue])};
+}
 static BOOL Stop(void) {
     pid_t pid = RunningPID();
     NSDictionary *job = Launchctl(@[@"print", ServiceTarget()]);
@@ -158,9 +219,31 @@ int main(int argc, char **argv) {
         int lock = open(Path(@"lock").fileSystemRepresentation, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
         if (lock < 0 || flock(lock, LOCK_EX) != 0) Fail(@"无法锁定服务状态。");
         NSString *command = argc > 1 ? @(argv[1]) : @"status";
+        if ([command isEqualToString:@"api-info"]) {
+            NSString *secret = [NSString stringWithContentsOfFile:Path(@"api-token") encoding:NSUTF8StringEncoding error:nil] ?: @"";
+            NSDictionary *config = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:Path(@"config.json")] ?: [NSData data] options:0 error:nil];
+            NSString *listen = config[@"outbounds"][1][@"api_listen"] ?: @"127.0.0.1:9099";
+            NSString *host = @"127.0.0.1";
+            if ([listen hasPrefix:@"0.0.0.0:"]) {
+                struct ifaddrs *interfaces = NULL;
+                if (!getifaddrs(&interfaces)) {
+                    for (struct ifaddrs *it = interfaces; it; it = it->ifa_next) {
+                        if (it->ifa_addr && it->ifa_addr->sa_family == AF_INET && !strcmp(it->ifa_name, "en0")) {
+                            char value[INET_ADDRSTRLEN];
+                            if (inet_ntop(AF_INET, &((struct sockaddr_in *)it->ifa_addr)->sin_addr, value, sizeof(value))) host = @(value);
+                        }
+                    }
+                    freeifaddrs(interfaces);
+                }
+            }
+            Reply(@{@"ok": @YES, @"token": secret, @"listen": listen, @"url": [NSString stringWithFormat:@"http://%@:9099/v1/proxy", host], @"message": secret.length ? @"API 密钥已就绪。" : @"启动新版服务后生成 API 密钥。"}, 0);
+        }
         if ([command isEqualToString:@"status"]) {
             pid_t pid = RunningPID();
-            Reply(@{@"ok": @YES, @"running": @(pid != 0), @"pid": @(pid), @"message": pid ? @"隧道进程运行中，实际分流效果需联网验证。" : @"全局服务已停止。"}, 0);
+            NSDictionary *upstream = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:Path(@"upstream.json")] ?: [NSData data] options:NSJSONReadingMutableContainers error:nil];
+            NSMutableDictionary *publicUpstream = [upstream mutableCopy] ?: [NSMutableDictionary dictionary];
+            [publicUpstream removeObjectForKey:@"password"];
+            Reply(@{@"ok": @YES, @"running": @(pid != 0), @"pid": @(pid), @"upstream": publicUpstream, @"message": pid ? [NSString stringWithFormat:@"隧道运行中，PID=%d，上游 %@ %@:%@。", pid, publicUpstream[@"type"] ?: @"", publicUpstream[@"server"] ?: @"", publicUpstream[@"server_port"] ?: @""] : @"全局服务已停止。"}, 0);
         }
         if ([command isEqualToString:@"log"]) {
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil] ?: @"暂无日志。";
@@ -176,18 +259,40 @@ int main(int argc, char **argv) {
             if (!Stop()) Fail(@"服务尚未退出，请稍后重试；未强行修改系统路由。");
             Reply(@{@"ok": @YES, @"message": @"服务已停止，隧道关闭。"}, 0);
         }
-        if (![command isEqualToString:@"start"] || argc != 4) Fail(@"用法：domainproxyctl start IPv4 端口 | stop | status | log");
-        struct in_addr addr;
-        if (inet_pton(AF_INET, argv[2], &addr) != 1) Fail(@"请输入有效的 IPv4 地址。");
-        char *end = NULL;
-        long port = strtol(argv[3], &end, 10);
-        if (!argv[3][0] || *end || port < 1 || port > 65535) Fail(@"端口必须为 1 到 65535。");
+        BOOL switching = [command isEqualToString:@"switch"] || [command isEqualToString:@"switch-json"];
+        if (!switching && ![command isEqualToString:@"start"] && ![command isEqualToString:@"start-json"]) Fail(@"用法：domainproxyctl start|switch IPv4 端口 [http|socks5] | start-json|switch-json（stdin JSON）| stop | status | log | api-info");
+        NSDictionary *proxy = ProxyOptions(argc, argv, [command hasSuffix:@"-json"]);
+        if (switching) {
+            pid_t before = RunningPID();
+            if (!before) Fail(@"服务未运行，请先启动全局服务。");
+            NSMutableDictionary *body = [proxy mutableCopy];
+            [body removeObjectForKey:@"api_lan"];
+            body[@"close_existing"] = @YES;
+            NSDictionary *result = ControlRequest(@"POST", body);
+            if (![result[@"ok"] boolValue]) Fail(result[@"message"] ?: @"切换失败。");
+            if (RunningPID() != before || [result[@"pid"] intValue] != before) Fail(@"核心 PID 发生变化，请刷新状态检查服务。");
+            Reply(@{@"ok": @YES, @"pid": @(before), @"message": @"代理已切换，隧道服务未重启。旧代理连接已关闭，新连接使用新上游；代理可达性需联网验证。"}, 0);
+        }
         NSData *templateData = [NSData dataWithContentsOfFile:jbroot(@"/Library/DomainProxy/global-config.json")];
         NSMutableDictionary *config = templateData ? [NSJSONSerialization JSONObjectWithData:templateData options:NSJSONReadingMutableContainers error:&error] : nil;
         if (!config) Fail(@"隧道规则文件缺失或损坏，请重新安装。");
-        config[@"outbounds"][1][@"server"] = @(argv[2]);
-        config[@"outbounds"][1][@"server_port"] = @(port);
-        config[@"inbounds"][0][@"route_exclude_address"] = @[[NSString stringWithFormat:@"%s/32", argv[2]]];
+        NSMutableDictionary *outbound = config[@"outbounds"][1];
+        outbound[@"type"] = @"domainproxy";
+        outbound[@"server"] = proxy[@"server"];
+        outbound[@"server_port"] = proxy[@"server_port"];
+        outbound[@"username"] = proxy[@"username"];
+        outbound[@"password"] = proxy[@"password"];
+        outbound[@"upstream_type"] = proxy[@"type"];
+        outbound[@"api_listen"] = [proxy[@"api_lan"] boolValue] ? @"0.0.0.0:9099" : @"127.0.0.1:9099";
+        NSString *secret = [NSString stringWithContentsOfFile:Path(@"api-token") encoding:NSUTF8StringEncoding error:nil];
+        if (secret.length < 32) {
+            secret = [[NSUUID.UUID.UUIDString stringByReplacingOccurrencesOfString:@"-" withString:@""] stringByAppendingString:[NSUUID.UUID.UUIDString stringByReplacingOccurrencesOfString:@"-" withString:@""]];
+            if (![secret writeToFile:Path(@"api-token") atomically:YES encoding:NSUTF8StringEncoding error:&error]) Fail(@"无法保存 API 密钥。");
+        }
+        outbound[@"api_secret"] = secret;
+        outbound[@"state_path"] = Path(@"upstream.json");
+        // Built-in HTTP/SOCKS dialers follow auto_detect_interface, including after a switch.
+        [config[@"inbounds"][0] removeObjectForKey:@"route_exclude_address"];
         NSData *json = [NSJSONSerialization dataWithJSONObject:config options:NSJSONWritingPrettyPrinted error:&error];
         if (!json || ![json writeToFile:Path(@"config.json") options:NSDataWritingAtomic error:&error]) Fail(error.localizedDescription ?: @"写入规则失败。");
         if (!Stop()) Fail(@"旧服务没有退出，无法启动新服务。");

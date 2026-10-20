@@ -2,3 +2,4 @@
 packages/
 *.zip
 downloads/
+.build-source/

@@ -33,7 +33,7 @@ for filename in sys.argv[1:]:
         info = plistlib.loads(archive.extractfile(entries[required[1]]).read())
         assert info["CFBundleIdentifier"] == "local.domainproxy.settings"
         assert info["CFBundleDisplayName"] == "域名代理"
-        assert info["CFBundleShortVersionString"] == "0.3.5"
+        assert info["CFBundleShortVersionString"] == "0.4.0"
         assert not any('MobileSubstrate' in name or name.endswith('.dylib') for name in entries), 'Unexpected injected plugin'
         controller = entries[required[2]]
         assert controller.uid == 0 and controller.mode & 0o4000, f'Root controller must be setuid and root-owned (uid={controller.uid}, mode={oct(controller.mode)})'
