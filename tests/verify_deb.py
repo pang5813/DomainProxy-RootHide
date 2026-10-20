@@ -1,6 +1,7 @@
 """Check standalone UI/controller/core packaging, with no injected dylib."""
 import io
 import plistlib
+import struct
 import sys
 import tarfile
 from pathlib import Path
@@ -34,6 +35,14 @@ for filename in sys.argv[1:]:
         assert info["CFBundleIdentifier"] == "local.domainproxy.settings"
         assert info["CFBundleDisplayName"] == "域名代理"
         assert info["CFBundleShortVersionString"] == "0.4.0"
+        assert info["CFBundleIcons"]["CFBundlePrimaryIcon"]["CFBundleIconFiles"]
+        for icon, size in [("AppIcon60@2x.png", 120), ("AppIcon60@3x.png", 180), ("AppIcon76@2x.png", 152), ("AppIcon83.5@2x.png", 167)]:
+            icon_path = "Applications/DomainProxyApp.app/" + icon
+            assert icon_path in entries, "Missing icon: " + icon
+            png = archive.extractfile(entries[icon_path]).read()
+            assert png[:8] == b"\x89PNG\r\n\x1a\n"
+            assert struct.unpack(">II", png[16:24]) == (size, size)
+            assert png[25] == 2, "App icon must be opaque RGB"
         assert not any('MobileSubstrate' in name or name.endswith('.dylib') for name in entries), 'Unexpected injected plugin'
         controller = entries[required[2]]
         assert controller.uid == 0 and controller.mode & 0o4000, f'Root controller must be setuid and root-owned (uid={controller.uid}, mode={oct(controller.mode)})'

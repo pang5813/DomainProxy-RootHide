@@ -84,7 +84,7 @@ func TestSwitchClosesOldConnectionsAndPersists(t *testing.T) {
 	o := testOutbound(t)
 	old := dialID(t, o, "http")
 	beforePID := os.Getpid()
-	w := request(o, "POST", "Bearer "+token, `{"type":"socks5","server":"198.51.100.2","server_port":1080,"username":"alice","password":"secret"}`)
+	w := request(o, "POST", "Bearer "+token, `{"type":"socks5","ip":"198.51.100.2","port":1080,"username":"alice","password":"secret"}`)
 	if w.Code != http.StatusOK {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -118,7 +118,7 @@ func TestSwitchClosesOldConnectionsAndPersists(t *testing.T) {
 func TestPreserveExistingConnections(t *testing.T) {
 	o := testOutbound(t)
 	old := dialID(t, o, "http")
-	w := request(o, "POST", "Bearer "+token, `{"type":"socks5","server":"198.51.100.3","server_port":1080,"close_existing":false}`)
+	w := request(o, "POST", "Bearer "+token, `{"type":"socks5","ip":"198.51.100.3","port":1080,"close_existing":false}`)
 	if w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
@@ -137,13 +137,13 @@ func TestRejectedRequestsLeaveCurrentProxyUntouched(t *testing.T) {
 		auth, body string
 		code       int
 	}{
-		{"", `{"type":"http","server":"192.0.2.3","server_port":80}`, 401},
+		{"", `{"type":"http","ip":"192.0.2.3","port":80}`, 401},
 		{"Bearer wrong", `{}`, 401},
-		{"Bearer " + token, `{"type":"direct","server":"192.0.2.3","server_port":80}`, 400},
-		{"Bearer " + token, `{"type":"http","server":"127.0.0.1","server_port":9099}`, 400},
-		{"Bearer " + token, `{"type":"http","server":"192.0.2.3","server_port":65536}`, 400},
-		{"Bearer " + token, `{"type":"http","server":"192.0.2.3","server_port":80,"unknown":true}`, 400},
-		{"Bearer " + token, `{"type":"http","server":"192.0.2.3","server_port":80} {}`, 400},
+		{"Bearer " + token, `{"type":"direct","ip":"192.0.2.3","port":80}`, 400},
+		{"Bearer " + token, `{"type":"http","ip":"127.0.0.1","port":9099}`, 400},
+		{"Bearer " + token, `{"type":"http","ip":"192.0.2.3","port":65536}`, 400},
+		{"Bearer " + token, `{"type":"http","ip":"192.0.2.3","port":80,"unknown":true}`, 400},
+		{"Bearer " + token, `{"type":"http","ip":"192.0.2.3","port":80} {}`, 400},
 		{"Bearer " + token, strings.Repeat(" ", 9000), 400},
 	}
 	for _, test := range tests {
@@ -157,7 +157,7 @@ func TestRejectedRequestsLeaveCurrentProxyUntouched(t *testing.T) {
 	}
 	// A persistence failure must also preserve the old live outbound.
 	o.options.StatePath = filepath.Join(t.TempDir(), "missing", "upstream.json")
-	w := request(o, "POST", "Bearer "+token, `{"type":"socks5","server":"192.0.2.4","server_port":1080}`)
+	w := request(o, "POST", "Bearer "+token, `{"type":"socks5","ip":"192.0.2.4","port":1080}`)
 	if w.Code != 500 || o.generation != 0 {
 		t.Fatal(w.Code, o.generation)
 	}
@@ -173,7 +173,7 @@ func TestConcurrentSwitchAndStatus(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 10; j++ {
 				request(o, "GET", "Bearer "+token, "")
-				w := request(o, "POST", "Bearer "+token, `{"type":"socks5","server":"192.0.2.5","server_port":1080}`)
+				w := request(o, "POST", "Bearer "+token, `{"type":"socks5","ip":"192.0.2.5","port":1080}`)
 				if w.Code != 200 {
 					t.Error(w.Code)
 				}

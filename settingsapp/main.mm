@@ -297,7 +297,7 @@ extern char **environ;
                 NSString *token = reply[@"token"];
                 if (token.length) {
                     NSString *url = reply[@"url"] ?: @"http://127.0.0.1:9099/v1/proxy";
-                    NSString *example = [NSString stringWithFormat:@"curl -X POST '%@' -H 'Authorization: Bearer %@' -H 'Content-Type: application/json' -d '{\"type\":\"%@\",\"server\":\"192.0.2.10\",\"server_port\":8080,\"username\":\"\",\"password\":\"\",\"close_existing\":true}'", url, token, self.protocolControl.selectedSegmentIndex == 1 ? @"socks5" : @"http"];
+                    NSString *example = [NSString stringWithFormat:@"curl -X POST '%@' -H 'Authorization: Bearer %@' -H 'Content-Type: application/json' -d '{\"type\":\"%@\",\"ip\":\"192.0.2.10\",\"port\":8080,\"username\":\"\",\"password\":\"\",\"close_existing\":true}'", url, token, self.protocolControl.selectedSegmentIndex == 1 ? @"socks5" : @"http"];
                     UIPasteboard.generalPasteboard.string = example;
                     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"已复制 API 调用示例" message:[NSString stringWithFormat:@"地址：%@\n本机：http://127.0.0.1:9099/v1/proxy\n\n把示例 IP、端口和账号密码换成你的代理。type 支持 http、socks5。GET 同一地址可查看当前上游和 PID。\n\n服务必须正在运行，App 无需在前台。密钥已包含在剪贴板示例中，请妥善保管。", url] preferredStyle:UIAlertControllerStyleAlert];
                     [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];

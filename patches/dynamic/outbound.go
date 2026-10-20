@@ -32,8 +32,8 @@ const Type = "domainproxy"
 
 type Endpoint struct {
 	Type     string `json:"type"`
-	Server   string `json:"server"`
-	Port     uint16 `json:"server_port"`
+	Server   string `json:"ip"`
+	Port     uint16 `json:"port"`
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
 }
@@ -44,7 +44,7 @@ func (e Endpoint) validate() error {
 	}
 	ip, err := netip.ParseAddr(e.Server)
 	if err != nil || !ip.Is4() || ip.IsUnspecified() || ip.As4()[0] >= 224 || (ip.IsLoopback() && e.Port == 9099) {
-		return errors.New("server must be a unicast IPv4 address and cannot point to the control API")
+		return errors.New("ip must be a unicast IPv4 address and cannot point to the control API")
 	}
 	if e.Port == 0 || len(e.Username) > 255 || len(e.Password) > 255 {
 		return errors.New("invalid port or credentials longer than 255 bytes")
@@ -278,8 +278,8 @@ func (o *Outbound) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		e := o.endpoint
 		generation := o.generation
 		o.mu.Unlock()
-		reply(w, http.StatusOK, map[string]any{"ok": true, "type": e.Type, "server": e.Server,
-			"server_port": e.Port, "username": e.Username, "password_set": e.Password != "", "generation": generation, "pid": os.Getpid()})
+		reply(w, http.StatusOK, map[string]any{"ok": true, "type": e.Type, "ip": e.Server,
+			"port": e.Port, "username": e.Username, "password_set": e.Password != "", "generation": generation, "pid": os.Getpid()})
 		return
 	}
 	if r.Method != http.MethodPost && r.Method != http.MethodPut {

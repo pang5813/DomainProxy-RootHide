@@ -25,10 +25,10 @@ App 无需为目标应用开启注入。核心由 launchd 独立运行。
 - 此接口使用 HTTP 明文，仅在可信局域网使用；不要将 9099 映射到公网。
 
 切换示例（全部为占位值，请替换）：
-curl -X POST 'http://手机Wi-Fi地址:9099/v1/proxy'   -H 'Authorization: Bearer 从App复制的密钥'   -H 'Content-Type: application/json'   -d '{"type":"socks5","server":"192.0.2.10","server_port":1080,"username":"","password":"","close_existing":true}'
+curl -X POST 'http://手机Wi-Fi地址:9099/v1/proxy'   -H 'Authorization: Bearer 从App复制的密钥'   -H 'Content-Type: application/json'   -d '{"type":"socks5","ip":"192.0.2.10","port":1080,"username":"","password":"","close_existing":true}'
 
 HTTP 上游将 type 改成 http；支持 POST 或 PUT。
-必须提供 type、server（IPv4）、server_port（1..65535）。
+必须提供 type、ip（IPv4）、port（1..65535）。
 username/password 可省略，省略表示无认证，不继承旧账号密码。
 close_existing 默认 true：关闭旧代理连接，促使应用重新连接。
 传 false：保留已有代理连接直到自然关闭，新建连接仍使用新代理。
@@ -37,7 +37,7 @@ close_existing 默认 true：关闭旧代理连接，促使应用重新连接。
 
 状态示例：
 curl 'http://手机Wi-Fi地址:9099/v1/proxy' -H 'Authorization: Bearer 从App复制的密钥'
-返回当前 type、server、server_port、username、password_set、generation 和 pid。
+返回当前 type、ip、port、username、password_set、generation 和 pid。
 不返回密码或控制密钥。成功切换响应含 pid 和 closed_connections。
 同一核心 PID 在切换前后保持一致；generation 每次切换递增。
 未认证返回 401，参数错误返回 400，服务内部保存失败返回 500。

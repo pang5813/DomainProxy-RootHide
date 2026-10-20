@@ -38,6 +38,7 @@ jobs:
           go mod edit -replace "github.com/sagernet/sing-tun=$RUNNER_TEMP/sing-tun-ios"
           go build -tags with_gvisor -o "$RUNNER_TEMP/sing-box-check" ./cmd/sing-box
           "$RUNNER_TEMP/sing-box-check" check -c "$GITHUB_WORKSPACE/layout/Library/DomainProxy/global-config.json"
+          python3 "$GITHUB_WORKSPACE/tests/core_api_test.py" "$RUNNER_TEMP/sing-box-check"
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           export CGO_ENABLED=1 GOOS=ios GOARCH=arm64
           export CC="$(xcrun --sdk iphoneos --find clang)"

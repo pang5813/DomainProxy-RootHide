@@ -243,7 +243,7 @@ int main(int argc, char **argv) {
             NSDictionary *upstream = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:Path(@"upstream.json")] ?: [NSData data] options:NSJSONReadingMutableContainers error:nil];
             NSMutableDictionary *publicUpstream = [upstream mutableCopy] ?: [NSMutableDictionary dictionary];
             [publicUpstream removeObjectForKey:@"password"];
-            Reply(@{@"ok": @YES, @"running": @(pid != 0), @"pid": @(pid), @"upstream": publicUpstream, @"message": pid ? [NSString stringWithFormat:@"隧道运行中，PID=%d，上游 %@ %@:%@。", pid, publicUpstream[@"type"] ?: @"", publicUpstream[@"server"] ?: @"", publicUpstream[@"server_port"] ?: @""] : @"全局服务已停止。"}, 0);
+            Reply(@{@"ok": @YES, @"running": @(pid != 0), @"pid": @(pid), @"upstream": publicUpstream, @"message": pid ? [NSString stringWithFormat:@"隧道运行中，PID=%d，上游 %@ %@:%@。", pid, publicUpstream[@"type"] ?: @"", publicUpstream[@"ip"] ?: @"", publicUpstream[@"port"] ?: @""] : @"全局服务已停止。"}, 0);
         }
         if ([command isEqualToString:@"log"]) {
             NSString *log = [NSString stringWithContentsOfFile:Path(@"service.log") encoding:NSUTF8StringEncoding error:nil] ?: @"暂无日志。";
@@ -267,6 +267,8 @@ int main(int argc, char **argv) {
             if (!before) Fail(@"服务未运行，请先启动全局服务。");
             NSMutableDictionary *body = [proxy mutableCopy];
             [body removeObjectForKey:@"api_lan"];
+            body[@"ip"] = body[@"server"]; body[@"port"] = body[@"server_port"];
+            [body removeObjectForKey:@"server"]; [body removeObjectForKey:@"server_port"];
             body[@"close_existing"] = @YES;
             NSDictionary *result = ControlRequest(@"POST", body);
             if (![result[@"ok"] boolValue]) Fail(result[@"message"] ?: @"切换失败。");
