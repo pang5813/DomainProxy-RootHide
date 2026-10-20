@@ -35,6 +35,7 @@ jobs:
           TUN_SOURCE="$(go list -m -f '{{.Dir}}' github.com/sagernet/sing-tun)"
           cp -R "$TUN_SOURCE" "$RUNNER_TEMP/sing-tun-ios"
           python3 "$GITHUB_WORKSPACE/patches/fix_ios_gateway.py" "$RUNNER_TEMP/sing-tun-ios"
+          chmod u+w "$RUNNER_TEMP/sing-tun-ios"
           cp "$GITHUB_WORKSPACE/patches/ios_routes_test.go" "$RUNNER_TEMP/sing-tun-ios/domainproxy_routes_test.go"
           python3 "$GITHUB_WORKSPACE/tests/ios_patch_test.py" "$RUNNER_TEMP/sing-tun-ios"
           go mod edit -replace "github.com/sagernet/sing-tun=$RUNNER_TEMP/sing-tun-ios"
